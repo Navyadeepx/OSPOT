@@ -242,6 +242,7 @@ fun WorkoutAppScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(55.dp)
+                        .navigationBarsPadding()
                 ) {
                     Row(
                         modifier = Modifier
