@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.Icon
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
@@ -44,6 +45,7 @@ class MainActivity : ComponentActivity() {
     private val SHOW_RIR_KEY = booleanPreferencesKey("show_rir")
     private val INCREMENT_KEY = stringPreferencesKey("weight_increment")
     private val SESSIONS_KEY = stringPreferencesKey("workout_sessions")
+    private val EXERCISES_KEY = stringPreferencesKey("session_exercises")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -58,9 +60,11 @@ class MainActivity : ComponentActivity() {
             val sessions = remember { mutableStateListOf<String>() }
             var selectedSession by remember { mutableStateOf("") }
             var menuExpanded by remember { mutableStateOf(false) }
+            var isEditMode by remember { mutableStateOf(false) }
 
             var showAddSessionDialog by remember { mutableStateOf(false) }
             var newSessionNameText by remember { mutableStateOf("") }
+            val sessionExercises = remember { mutableStateMapOf<String, androidx.compose.runtime.snapshots.SnapshotStateList<String>>() }
 
             LaunchedEffect(Unit) {
                 val prefs = dataStore.data.first()
@@ -76,6 +80,18 @@ class MainActivity : ComponentActivity() {
                         sessions.addAll(decodedList)
                         if (sessions.isNotEmpty()) {
                             selectedSession = sessions.first()
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+
+                val savedExercisesJson = prefs[EXERCISES_KEY] ?: ""
+                if (savedExercisesJson.isNotEmpty()) {
+                    try {
+                        val decodedMap = Json.decodeFromString<Map<String, List<String>>>(savedExercisesJson)
+                        decodedMap.forEach { (key, value) ->
+                            sessionExercises[key] = mutableStateListOf<String>().apply { addAll(value) }
                         }
                     } catch (e: Exception) {
                         e.printStackTrace()
@@ -105,29 +121,60 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            OSPOTTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    WorkoutAppScreen(
-                        currentScreen = currentScreen,
-                        onScreenChange = { currentScreen = it },
-                        showRpe = showRpe,
-                        onRpeChange = saveRpe,
-                        showRir = showRir,
-                        onRirChange = saveRir,
-                        weightIncrement = weightIncrement,
-                        onIncrementChange = saveIncrement,
-                        sessions = sessions,
-                        onSaveSessions = saveSessions,
-                        selectedSession = selectedSession,
-                        onSelectedSessionChange = { selectedSession = it },
-                        menuExpanded = menuExpanded,
-                        onMenuToggle = { menuExpanded = it },
-                        showAddSessionDialog = showAddSessionDialog,
-                        onShowDialogChange = { showAddSessionDialog = it },
-                        newSessionNameText = newSessionNameText,
-                        onDialogTextChange = { newSessionNameText = it }
-                    )
+            val saveExercises: () -> Unit = {
+                scope.launch {
+                    val mapToSave = sessionExercises.mapValues { it.value.toList() }
+                    val jsonString = Json.encodeToString(mapToSave)
+                    dataStore.edit { it[EXERCISES_KEY] = jsonString }
                 }
+            }
+
+            OSPOTTheme {
+                WorkoutAppScreen(
+                    currentScreen = currentScreen,
+                    onScreenChange = { currentScreen = it },
+                    showRpe = showRpe,
+                    onRpeChange = saveRpe,
+                    showRir = showRir,
+                    onRirChange = saveRir,
+                    weightIncrement = weightIncrement,
+                    onIncrementChange = saveIncrement,
+                    sessions = sessions,
+                    onSaveSessions = saveSessions,
+                    selectedSession = selectedSession,
+                    onSelectedSessionChange = { selectedSession = it },
+                    menuExpanded = menuExpanded,
+                    onMenuToggle = { menuExpanded = it },
+                    showAddSessionDialog = showAddSessionDialog,
+                    onShowDialogChange = { showAddSessionDialog = it },
+                    newSessionNameText = newSessionNameText,
+                    onDialogTextChange = { newSessionNameText = it },
+                    exercises = sessionExercises[selectedSession] ?: emptyList(),
+                    onAddExercise = {
+                        if (selectedSession.isNotEmpty()) {
+                            val list = sessionExercises.getOrPut(selectedSession) { mutableStateListOf() }
+                            list.add("Empty Box")
+                            saveExercises()
+                        }
+                    },
+                    onRemoveExercise = { index ->
+                        if (selectedSession.isNotEmpty()) {
+                            sessionExercises[selectedSession]?.removeAt(index)
+                            saveExercises()
+                        }
+                    },
+                    onRemoveSession = { session ->
+                        sessions.remove(session)
+                        sessionExercises.remove(session)
+                        if (selectedSession == session) {
+                            selectedSession = if (sessions.isNotEmpty()) sessions.first() else ""
+                        }
+                        saveSessions()
+                        saveExercises()
+                    },
+                    isEditMode = isEditMode,
+                    onEditModeChange = { isEditMode = it }
+                )
             }
         }
     }
@@ -153,8 +200,20 @@ fun WorkoutAppScreen(
     showAddSessionDialog: Boolean,
     onShowDialogChange: (Boolean) -> Unit,
     newSessionNameText: String,
-    onDialogTextChange: (String) -> Unit
+    onDialogTextChange: (String) -> Unit,
+    exercises: List<String>,
+    onAddExercise: () -> Unit,
+    onRemoveExercise: (Int) -> Unit,
+    onRemoveSession: (String) -> Unit,
+    isEditMode: Boolean,
+    onEditModeChange: (Boolean) -> Unit
 ) {
+    var showDeleteExerciseDialog by remember { mutableStateOf(false) }
+    var exerciseIndexToDelete by remember { mutableIntStateOf(-1) }
+
+    var showDeleteSessionDialog by remember { mutableStateOf(false) }
+    var sessionToDelete by remember { mutableStateOf("") }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -198,7 +257,10 @@ fun WorkoutAppScreen(
                             )
                             DropdownMenuItem(
                                 text = { Text("Edit", color = Color.White, fontSize = 16.sp) },
-                                onClick = { onMenuToggle(false) },
+                                onClick = {
+                                    onEditModeChange(true)
+                                    onMenuToggle(false)
+                                },
                                 modifier = Modifier.height(42.dp).padding(horizontal = 4.dp)
                             )
                         }
@@ -224,10 +286,16 @@ fun WorkoutAppScreen(
                                 tint = Color.Transparent
                             )
                         }
-                        IconButton(onClick = { /* TODO: Add/New action */ }) {
+                        IconButton(onClick = {
+                            if (isEditMode) {
+                                onEditModeChange(false)
+                            } else {
+                                onAddExercise()
+                            }
+                        }) {
                             Icon(
-                                imageVector = Icons.Filled.Add,
-                                contentDescription = "New",
+                                imageVector = if (isEditMode) Icons.Filled.Close else Icons.Filled.Add,
+                                contentDescription = if (isEditMode) "Exit Edit Mode" else "New",
                                 tint = Color.White
                             )
                         }
@@ -276,12 +344,37 @@ fun WorkoutAppScreen(
                                     }
                                     .padding(horizontal = 16.dp, vertical = 8.dp)
                             ) {
-                                Text(
-                                    text = session,
-                                    color = if (isSelected) Color.White else Color.Gray,
-                                    fontSize = 14.sp,
-                                    fontWeight = if (isSelected) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal
-                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = session,
+                                        color = if (isSelected) Color.White else Color.Gray,
+                                        fontSize = 14.sp,
+                                        fontWeight = if (isSelected) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal
+                                    )
+                                    if (isEditMode) {
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Box(
+                                            modifier = Modifier
+                                                .size(20.dp)
+                                                .clickable(
+                                                    interactionSource = remember { MutableInteractionSource() },
+                                                    indication = null
+                                                ) {
+                                                    sessionToDelete = session
+                                                    showDeleteSessionDialog = true
+                                                },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            // Custom Rounded Minus
+                                            Box(
+                                                modifier = Modifier
+                                                    .width(10.dp)
+                                                    .height(2.dp)
+                                                    .background(Color.Red, RoundedCornerShape(1.dp))
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
 
@@ -313,18 +406,36 @@ fun WorkoutAppScreen(
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize()) {
             if (currentScreen == "workout_log") {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding)
-                        .verticalScroll(rememberScrollState())
-                ) {
-                    Text(
-                        text = selectedSession.ifEmpty { "Create a session to begin logging" },
-                        modifier = Modifier.padding(16.dp),
-                        fontSize = 18.sp,
-                        color = Color.White
-                    )
+                if (selectedSession.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(innerPadding),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Create a session to begin logging",
+                            fontSize = 18.sp,
+                            color = Color.Gray
+                        )
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(innerPadding)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        exercises.forEachIndexed { index, _ ->
+                            ExerciseBox(
+                                isEditMode = isEditMode,
+                                onDeleteClick = {
+                                    exerciseIndexToDelete = index
+                                    showDeleteExerciseDialog = true
+                                }
+                            )
+                        }
+                    }
                 }
             }
 
@@ -410,6 +521,96 @@ fun WorkoutAppScreen(
                     onShowDialogChange(false)
                     onDialogTextChange("")
                 }) {
+                    Text("Cancel", color = Color.Gray)
+                }
+            }
+        )
+    }
+
+    if (showDeleteSessionDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteSessionDialog = false },
+            containerColor = Color(0xFF161616),
+            shape = RoundedCornerShape(20.dp),
+            modifier = Modifier.border(
+                width = 1.dp,
+                color = Color.Gray.copy(alpha = 0.25f),
+                shape = RoundedCornerShape(20.dp)
+            ),
+            title = {
+                Text(
+                    text = "Delete Session?",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = "Are you sure you want to remove \"$sessionToDelete\" and all its exercises?",
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 14.sp
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (sessionToDelete.isNotEmpty()) {
+                            onRemoveSession(sessionToDelete)
+                        }
+                        showDeleteSessionDialog = false
+                    }
+                ) {
+                    Text("Delete", color = Color.Red, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteSessionDialog = false }) {
+                    Text("Cancel", color = Color.Gray)
+                }
+            }
+        )
+    }
+
+    if (showDeleteExerciseDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteExerciseDialog = false },
+            containerColor = Color(0xFF161616),
+            shape = RoundedCornerShape(20.dp),
+            modifier = Modifier.border(
+                width = 1.dp,
+                color = Color.Gray.copy(alpha = 0.25f),
+                shape = RoundedCornerShape(20.dp)
+            ),
+            title = {
+                Text(
+                    text = "Delete Exercise?",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = "Are you sure you want to remove this exercise box?",
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 14.sp
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (exerciseIndexToDelete != -1) {
+                            onRemoveExercise(exerciseIndexToDelete)
+                        }
+                        showDeleteExerciseDialog = false
+                    }
+                ) {
+                    Text("Delete", color = Color.Red, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteExerciseDialog = false }) {
                     Text("Cancel", color = Color.Gray)
                 }
             }
@@ -584,6 +785,64 @@ fun SettingsScreen(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun ExerciseBox(isEditMode: Boolean, onDeleteClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = Color(0xFF161616)
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(
+                    width = 1.dp,
+                    color = Color.Gray.copy(alpha = 0.2f),
+                    shape = RoundedCornerShape(16.dp)
+                )
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(90.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Empty Exercise",
+                    color = Color.Gray.copy(alpha = 0.5f),
+                    fontSize = 14.sp
+                )
+            }
+        }
+
+        if (isEditMode) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 4.dp, end = 8.dp)
+                    .size(32.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { onDeleteClick() },
+                contentAlignment = Alignment.Center
+            ) {
+                // Custom Rounded Minus
+                Box(
+                    modifier = Modifier
+                        .width(12.dp)
+                        .height(3.dp)
+                        .background(Color(0xffbf0000), RoundedCornerShape(2.dp))
+                )
             }
         }
     }
