@@ -30,12 +30,17 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.Icon
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.first
@@ -1254,7 +1259,16 @@ fun SetValueEditor(
     modifier: Modifier = Modifier
 ) {
     var isEditing by remember { mutableStateOf(false) }
-    var editValue by remember { mutableStateOf(value) }
+    var editValue by remember { mutableStateOf(TextFieldValue(value)) }
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    LaunchedEffect(isEditing) {
+        if (isEditing) {
+            focusRequester.requestFocus()
+            keyboardController?.show()
+        }
+    }
 
     Row(
         modifier = modifier,
@@ -1279,7 +1293,11 @@ fun SetValueEditor(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
                     ) {
-                        editValue = if (value == "-") "" else value
+                        val text = if (value == "-") "" else value
+                        editValue = TextFieldValue(
+                            text = text,
+                            selection = TextRange(text.length)
+                        )
                         isEditing = true
                     },
                 contentAlignment = Alignment.Center
@@ -1293,7 +1311,9 @@ fun SetValueEditor(
                             fontSize = 14.sp,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         ),
-                        modifier = Modifier.width(32.dp),
+                        modifier = Modifier
+                            .width(32.dp)
+                            .focusRequester(focusRequester),
                         singleLine = true,
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                             keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal,
@@ -1301,7 +1321,7 @@ fun SetValueEditor(
                         ),
                         keyboardActions = androidx.compose.foundation.text.KeyboardActions(
                             onDone = {
-                                onValueChange(editValue.ifEmpty { "-" })
+                                onValueChange(editValue.text.ifEmpty { "-" })
                                 isEditing = false
                             }
                         ),
