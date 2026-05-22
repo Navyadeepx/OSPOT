@@ -244,6 +244,15 @@ class MainActivity : ComponentActivity() {
                         saveSessions()
                         saveExercises()
                     },
+                    onRenameExercise = { exerciseIndex, newName ->
+                        if (selectedSession.isNotEmpty()) {
+                            val list = sessionExercises[selectedSession]
+                            if (list != null && exerciseIndex in list.indices) {
+                                list[exerciseIndex] = list[exerciseIndex].copy(name = newName)
+                                saveExercises()
+                            }
+                        }
+                    },
                     isEditMode = isEditMode,
                     onEditModeChange = { isEditMode = it }
                 )
@@ -284,6 +293,7 @@ fun WorkoutAppScreen(
     onRemoveExercise: (Int) -> Unit,
     onRemoveSet: (Int, Int) -> Unit,
     onRemoveSession: (String) -> Unit,
+    onRenameExercise: (Int, String) -> Unit,
     isEditMode: Boolean,
     onEditModeChange: (Boolean) -> Unit
 ) {
@@ -545,6 +555,7 @@ fun WorkoutAppScreen(
                                 onAddSet = { type -> onAddSet(index, type) },
                                 onUpdateSet = { setIndex, updatedSet -> onUpdateSet(index, setIndex, updatedSet) },
                                 onRemoveSet = { setIndex -> onRemoveSet(index, setIndex) },
+                                onRename = { newName -> onRenameExercise(index, newName) },
                                 onDeleteClick = {
                                     exerciseIndexToDelete = index
                                     showDeleteExerciseDialog = true
@@ -982,9 +993,21 @@ fun ExerciseBox(
     onAddSet: (SetType) -> Unit,
     onUpdateSet: (Int, WorkoutSet) -> Unit,
     onRemoveSet: (Int) -> Unit,
+    onRename: (String) -> Unit,
     onDeleteClick: () -> Unit
 ) {
     var addSetMenuExpanded by remember { mutableStateOf(false) }
+    var isEditingName by remember { mutableStateOf(false) }
+    var editNameValue by remember { mutableStateOf(TextFieldValue(name)) }
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    LaunchedEffect(isEditingName) {
+        if (isEditingName) {
+            focusRequester.requestFocus()
+            keyboardController?.show()
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -1009,12 +1032,61 @@ fun ExerciseBox(
                     .fillMaxWidth()
                     .padding(start = 16.dp, top = 12.dp, end = 0.dp, bottom = 12.dp)
             ) {
-                Text(
-                    text = name,
-                    color = Color.White,
-                    fontSize = 16.sp,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(26.dp) // Fixed height to prevent card jump
+                        .padding(end = 40.dp), // Maintain space for top-right button
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    if (isEditMode && isEditingName) {
+                        androidx.compose.foundation.text.BasicTextField(
+                            value = editNameValue,
+                            onValueChange = { editNameValue = it },
+                            textStyle = LocalTextStyle.current.copy(
+                                color = Color.White,
+                                fontSize = 16.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(focusRequester),
+                            singleLine = true,
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                imeAction = androidx.compose.ui.text.input.ImeAction.Done
+                            ),
+                            keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                                onDone = {
+                                    if (editNameValue.text.isNotBlank()) {
+                                        onRename(editNameValue.text)
+                                    }
+                                    isEditingName = false
+                                }
+                            ),
+                            cursorBrush = androidx.compose.ui.graphics.SolidColor(Color.White)
+                        )
+                    } else {
+                        Text(
+                            text = name,
+                            style = LocalTextStyle.current.copy(
+                                color = Color.White,
+                                fontSize = 16.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                            ),
+                            modifier = if (isEditMode) {
+                                Modifier.clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    editNameValue = TextFieldValue(name, TextRange(name.length))
+                                    isEditingName = true
+                                }
+                            } else {
+                                Modifier
+                            }
+                        )
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
