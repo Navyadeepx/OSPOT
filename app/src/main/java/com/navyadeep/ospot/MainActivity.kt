@@ -253,6 +253,16 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     },
+                    onMoveExercise = { from, to ->
+                        if (selectedSession.isNotEmpty()) {
+                            val list = sessionExercises[selectedSession]
+                            if (list != null && from in list.indices && to in list.indices) {
+                                val item = list.removeAt(from)
+                                list.add(to, item)
+                                saveExercises()
+                            }
+                        }
+                    },
                     isEditMode = isEditMode,
                     onEditModeChange = { isEditMode = it }
                 )
@@ -294,6 +304,7 @@ fun WorkoutAppScreen(
     onRemoveSet: (Int, Int) -> Unit,
     onRemoveSession: (String) -> Unit,
     onRenameExercise: (Int, String) -> Unit,
+    onMoveExercise: (Int, Int) -> Unit,
     isEditMode: Boolean,
     onEditModeChange: (Boolean) -> Unit
 ) {
@@ -556,6 +567,8 @@ fun WorkoutAppScreen(
                                 onUpdateSet = { setIndex, updatedSet -> onUpdateSet(index, setIndex, updatedSet) },
                                 onRemoveSet = { setIndex -> onRemoveSet(index, setIndex) },
                                 onRename = { newName -> onRenameExercise(index, newName) },
+                                onMoveUp = if (index > 0) { { onMoveExercise(index, index - 1) } } else null,
+                                onMoveDown = if (index < exercises.size - 1) { { onMoveExercise(index, index + 1) } } else null,
                                 onDeleteClick = {
                                     exerciseIndexToDelete = index
                                     showDeleteExerciseDialog = true
@@ -994,6 +1007,8 @@ fun ExerciseBox(
     onUpdateSet: (Int, WorkoutSet) -> Unit,
     onRemoveSet: (Int) -> Unit,
     onRename: (String) -> Unit,
+    onMoveUp: (() -> Unit)? = null,
+    onMoveDown: (() -> Unit)? = null,
     onDeleteClick: () -> Unit
 ) {
     var addSetMenuExpanded by remember { mutableStateOf(false) }
@@ -1066,25 +1081,56 @@ fun ExerciseBox(
                             cursorBrush = androidx.compose.ui.graphics.SolidColor(Color.White)
                         )
                     } else {
-                        Text(
-                            text = name,
-                            style = LocalTextStyle.current.copy(
-                                color = Color.White,
-                                fontSize = 16.sp,
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-                            ),
-                            modifier = if (isEditMode) {
-                                Modifier.clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null
-                                ) {
-                                    editNameValue = TextFieldValue(name, TextRange(name.length))
-                                    isEditingName = true
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = name,
+                                style = LocalTextStyle.current.copy(
+                                    color = Color.White,
+                                    fontSize = 16.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                ),
+                                modifier = if (isEditMode) {
+                                    Modifier.clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        editNameValue = TextFieldValue(name, TextRange(name.length))
+                                        isEditingName = true
+                                    }
+                                } else {
+                                    Modifier
                                 }
-                            } else {
-                                Modifier
+                            )
+                            if (isEditMode) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                if (onMoveUp != null) {
+                                    IconButton(
+                                        onClick = onMoveUp,
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.KeyboardArrowUp,
+                                            contentDescription = "Move Up",
+                                            tint = Color.Gray,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                                if (onMoveDown != null) {
+                                    IconButton(
+                                        onClick = onMoveDown,
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.KeyboardArrowDown,
+                                            contentDescription = "Move Down",
+                                            tint = Color.Gray,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
                             }
-                        )
+                        }
                     }
                 }
 
