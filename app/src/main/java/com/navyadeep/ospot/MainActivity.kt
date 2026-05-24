@@ -82,8 +82,8 @@ class MainActivity : ComponentActivity() {
             val scope = rememberCoroutineScope()
 
             var currentScreen by remember { mutableStateOf("workout_log") }
-            var showRpe by remember { mutableStateOf(true) }
-            var showRir by remember { mutableStateOf(true) }
+            var showRpe by remember { mutableStateOf(false) }
+            var showRir by remember { mutableStateOf(false) }
             var weightIncrement by remember { mutableStateOf("2.5") }
             val sessions = remember { mutableStateListOf<String>() }
             var selectedSession by remember { mutableStateOf("") }
@@ -98,8 +98,8 @@ class MainActivity : ComponentActivity() {
 
             LaunchedEffect(Unit) {
                 val prefs = dataStore.data.first()
-                showRpe = prefs[SHOW_RPE_KEY] ?: true
-                showRir = prefs[SHOW_RIR_KEY] ?: true
+                showRpe = prefs[SHOW_RPE_KEY] ?: false
+                showRir = prefs[SHOW_RIR_KEY] ?: false
                 weightIncrement = prefs[INCREMENT_KEY] ?: "2.5"
 
                 val savedSessionsJson = prefs[SESSIONS_KEY] ?: ""
