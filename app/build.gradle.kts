@@ -14,10 +14,10 @@ android {
 
     defaultConfig {
         applicationId = "com.navyadeep.ospot"
-        minSdk = 34
+        minSdk = 33
         targetSdk = 36
         versionCode = 1
-        versionName = "1.0"
+        versionName = "1.0.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

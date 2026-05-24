@@ -32,6 +32,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -201,14 +202,20 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     },
-                    onUpdateSet = { exerciseIndex, setIndex, updatedSet ->
+                    onUpdateSet = { exerciseIndex, setIndex, weight, reps, rir, rpe ->
                         if (selectedSession.isNotEmpty()) {
                             val list = sessionExercises[selectedSession]
                             if (list != null && exerciseIndex in list.indices) {
                                 val exercise = list[exerciseIndex]
                                 if (setIndex in exercise.sets.indices) {
                                     val updatedSets = exercise.sets.toMutableList()
-                                    updatedSets[setIndex] = updatedSet
+                                    val oldSet = updatedSets[setIndex]
+                                    updatedSets[setIndex] = oldSet.copy(
+                                        weight = weight ?: oldSet.weight,
+                                        reps = reps ?: oldSet.reps,
+                                        rir = rir ?: oldSet.rir,
+                                        rpe = rpe ?: oldSet.rpe
+                                    )
                                     list[exerciseIndex] = exercise.copy(sets = updatedSets)
                                     saveExercises()
                                 }
@@ -299,7 +306,7 @@ fun WorkoutAppScreen(
     exercises: List<Exercise>,
     onAddExercise: (String) -> Unit,
     onAddSet: (Int, SetType) -> Unit,
-    onUpdateSet: (Int, Int, WorkoutSet) -> Unit,
+    onUpdateSet: (Int, Int, String?, String?, String?, String?) -> Unit,
     onRemoveExercise: (Int) -> Unit,
     onRemoveSet: (Int, Int) -> Unit,
     onRemoveSession: (String) -> Unit,
@@ -564,7 +571,7 @@ fun WorkoutAppScreen(
                                 showRir = showRir,
                                 weightIncrement = weightIncrement,
                                 onAddSet = { type -> onAddSet(index, type) },
-                                onUpdateSet = { setIndex, updatedSet -> onUpdateSet(index, setIndex, updatedSet) },
+                                onUpdateSet = { setIndex, w, r, rir, rpe -> onUpdateSet(index, setIndex, w, r, rir, rpe) },
                                 onRemoveSet = { setIndex -> onRemoveSet(index, setIndex) },
                                 onRename = { newName -> onRenameExercise(index, newName) },
                                 onMoveUp = if (index > 0) { { onMoveExercise(index, index - 1) } } else null,
@@ -1004,7 +1011,7 @@ fun ExerciseBox(
     showRir: Boolean,
     weightIncrement: String,
     onAddSet: (SetType) -> Unit,
-    onUpdateSet: (Int, WorkoutSet) -> Unit,
+    onUpdateSet: (Int, String?, String?, String?, String?) -> Unit,
     onRemoveSet: (Int) -> Unit,
     onRename: (String) -> Unit,
     onMoveUp: (() -> Unit)? = null,
@@ -1014,6 +1021,7 @@ fun ExerciseBox(
     var addSetMenuExpanded by remember { mutableStateOf(false) }
     var isEditingName by remember { mutableStateOf(false) }
     var editNameValue by remember { mutableStateOf(TextFieldValue(name)) }
+    var hasGainedFocus by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
 
@@ -1021,6 +1029,8 @@ fun ExerciseBox(
         if (isEditingName) {
             focusRequester.requestFocus()
             keyboardController?.show()
+        } else {
+            hasGainedFocus = false
         }
     }
 
@@ -1065,7 +1075,16 @@ fun ExerciseBox(
                             ),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .focusRequester(focusRequester),
+                                .focusRequester(focusRequester)
+                                .onFocusChanged { focusState ->
+                                    if (focusState.isFocused) hasGainedFocus = true
+                                    if (!focusState.isFocused && hasGainedFocus && isEditingName) {
+                                        if (editNameValue.text.isNotBlank()) {
+                                            onRename(editNameValue.text)
+                                        }
+                                        isEditingName = false
+                                    }
+                                },
                             singleLine = true,
                             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                                 imeAction = androidx.compose.ui.text.input.ImeAction.Done
@@ -1179,18 +1198,18 @@ fun ExerciseBox(
                                     label = "Weight",
                                     value = set.weight,
                                     labelWidth = 38.dp,
-                                    onValueChange = { onUpdateSet(index, set.copy(weight = it)) },
+                                    onValueChange = { onUpdateSet(index, it, null, null, null) },
                                     onIncrement = {
                                         val current = set.weight.toDoubleOrNull() ?: 0.0
                                         val inc = weightIncrement.toDoubleOrNull() ?: 2.5
                                         val next = current + inc
-                                        onUpdateSet(index, set.copy(weight = if (next % 1.0 == 0.0) next.toInt().toString() else next.toString()))
+                                        onUpdateSet(index, if (next % 1.0 == 0.0) next.toInt().toString() else next.toString(), null, null, null)
                                     },
                                     onDecrement = {
                                         val current = set.weight.toDoubleOrNull() ?: 0.0
                                         val inc = weightIncrement.toDoubleOrNull() ?: 2.5
                                         val next = (current - inc).coerceAtLeast(0.0)
-                                        onUpdateSet(index, set.copy(weight = if (next % 1.0 == 0.0) next.toInt().toString() else next.toString()))
+                                        onUpdateSet(index, if (next % 1.0 == 0.0) next.toInt().toString() else next.toString(), null, null, null)
                                     },
                                     modifier = Modifier.weight(1f)
                                 )
@@ -1202,14 +1221,14 @@ fun ExerciseBox(
                                     label = "Reps",
                                     value = set.reps,
                                     labelWidth = 24.dp,
-                                    onValueChange = { onUpdateSet(index, set.copy(reps = it)) },
+                                    onValueChange = { onUpdateSet(index, null, it, null, null) },
                                     onIncrement = {
                                         val current = set.reps.toIntOrNull() ?: 0
-                                        onUpdateSet(index, set.copy(reps = (current + 1).toString()))
+                                        onUpdateSet(index, null, (current + 1).toString(), null, null)
                                     },
                                     onDecrement = {
                                         val current = set.reps.toIntOrNull() ?: 0
-                                        onUpdateSet(index, set.copy(reps = (current - 1).coerceAtLeast(0).toString()))
+                                        onUpdateSet(index, null, (current - 1).coerceAtLeast(0).toString(), null, null)
                                     },
                                     modifier = Modifier.weight(1f)
                                 )
@@ -1226,14 +1245,14 @@ fun ExerciseBox(
                                             label = "RIR",
                                             value = set.rir,
                                             labelWidth = 38.dp,
-                                            onValueChange = { onUpdateSet(index, set.copy(rir = it)) },
+                                            onValueChange = { onUpdateSet(index, null, null, it, null) },
                                             onIncrement = {
                                                 val current = set.rir.toIntOrNull() ?: 0
-                                                onUpdateSet(index, set.copy(rir = (current + 1).toString()))
+                                                onUpdateSet(index, null, null, (current + 1).toString(), null)
                                             },
                                             onDecrement = {
                                                 val current = set.rir.toIntOrNull() ?: 0
-                                                onUpdateSet(index, set.copy(rir = (current - 1).coerceAtLeast(0).toString()))
+                                                onUpdateSet(index, null, null, (current - 1).coerceAtLeast(0).toString(), null)
                                             },
                                             modifier = Modifier.weight(1f)
                                         )
@@ -1248,16 +1267,16 @@ fun ExerciseBox(
                                             label = "RPE",
                                             value = set.rpe,
                                             labelWidth = 24.dp,
-                                            onValueChange = { onUpdateSet(index, set.copy(rpe = it)) },
+                                            onValueChange = { onUpdateSet(index, null, null, null, it) },
                                             onIncrement = {
                                                 val current = set.rpe.toDoubleOrNull() ?: 0.0
                                                 val next = (current + 0.5).coerceAtMost(10.0)
-                                                onUpdateSet(index, set.copy(rpe = if (next % 1.0 == 0.0) next.toInt().toString() else next.toString()))
+                                                onUpdateSet(index, null, null, null, if (next % 1.0 == 0.0) next.toInt().toString() else next.toString())
                                             },
                                             onDecrement = {
                                                 val current = set.rpe.toDoubleOrNull() ?: 0.0
                                                 val next = (current - 0.5).coerceAtLeast(0.0)
-                                                onUpdateSet(index, set.copy(rpe = if (next % 1.0 == 0.0) next.toInt().toString() else next.toString()))
+                                                onUpdateSet(index, null, null, null, if (next % 1.0 == 0.0) next.toInt().toString() else next.toString())
                                             },
                                             modifier = Modifier.weight(1f)
                                         )
@@ -1378,6 +1397,7 @@ fun SetValueEditor(
 ) {
     var isEditing by remember { mutableStateOf(false) }
     var editValue by remember { mutableStateOf(TextFieldValue(value)) }
+    var hasGainedFocus by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
 
@@ -1385,6 +1405,8 @@ fun SetValueEditor(
         if (isEditing) {
             focusRequester.requestFocus()
             keyboardController?.show()
+        } else {
+            hasGainedFocus = false
         }
     }
 
@@ -1431,7 +1453,14 @@ fun SetValueEditor(
                         ),
                         modifier = Modifier
                             .width(32.dp)
-                            .focusRequester(focusRequester),
+                            .focusRequester(focusRequester)
+                            .onFocusChanged { focusState ->
+                                if (focusState.isFocused) hasGainedFocus = true
+                                if (!focusState.isFocused && hasGainedFocus && isEditing) {
+                                    onValueChange(editValue.text.ifEmpty { "-" })
+                                    isEditing = false
+                                }
+                            },
                         singleLine = true,
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                             keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal,
