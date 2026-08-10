@@ -1,11 +1,18 @@
 package com.navyadeep.ospot
 
 import android.content.Context
+import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -68,6 +75,15 @@ data class WorkoutSet(
 @Serializable
 data class Exercise(val name: String, val sets: List<WorkoutSet> = emptyList())
 
+@Serializable
+data class WorkoutBackup(
+    val sessions: List<String>,
+    val sessionExercises: Map<String, List<Exercise>>,
+    val showRpe: Boolean,
+    val showRir: Boolean,
+    val weightIncrement: String
+)
+
 class MainActivity : ComponentActivity() {
 
     private val SHOW_RPE_KEY = booleanPreferencesKey("show_rpe")
@@ -99,9 +115,41 @@ class MainActivity : ComponentActivity() {
                 emptyMap()
             }
         } else emptyMap()
+        
+        val initialAccentColor = 0xFFFFFFFFL
 
         setContent {
             val scope = rememberCoroutineScope()
+
+            val exportLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.CreateDocument("application/json")
+            ) { uri ->
+                uri?.let {
+                    scope.launch {
+                        try {
+                            val prefs = dataStore.data.first()
+                            val sessionsJson = prefs[SESSIONS_KEY] ?: "[]"
+                            val exercisesJson = prefs[EXERCISES_KEY] ?: "{}"
+                            
+                            val backup = WorkoutBackup(
+                                sessions = Json.decodeFromString(sessionsJson),
+                                sessionExercises = Json.decodeFromString(exercisesJson),
+                                showRpe = prefs[SHOW_RPE_KEY] ?: false,
+                                showRir = prefs[SHOW_RIR_KEY] ?: false,
+                                weightIncrement = prefs[INCREMENT_KEY] ?: "2.5"
+                            )
+                            
+                            val backupJson = Json.encodeToString(backup)
+                            contentResolver.openOutputStream(it)?.use { outputStream ->
+                                outputStream.write(backupJson.toByteArray())
+                            }
+                            Toast.makeText(this@MainActivity, "Data exported successfully", Toast.LENGTH_SHORT).show()
+                        } catch (e: Exception) {
+                            Toast.makeText(this@MainActivity, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            }
 
             var currentScreen by remember { mutableStateOf("workout_log") }
             var showRpe by remember { mutableStateOf(initialPrefs[SHOW_RPE_KEY] ?: false) }
@@ -116,10 +164,51 @@ class MainActivity : ComponentActivity() {
             var newSessionNameText by remember { mutableStateOf("") }
             var showAddExerciseDialog by remember { mutableStateOf(false) }
             var newExerciseNameText by remember { mutableStateOf("") }
+            var accentColor by remember { mutableStateOf(Color(initialAccentColor)) }
             val sessionExercises = remember {
                 mutableStateMapOf<String, androidx.compose.runtime.snapshots.SnapshotStateList<Exercise>>().apply {
                     initialExercisesMap.forEach { (key, value) ->
                         put(key, mutableStateListOf<Exercise>().apply { addAll(value) })
+                    }
+                }
+            }
+
+            val importLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.OpenDocument()
+            ) { uri ->
+                uri?.let {
+                    scope.launch {
+                        try {
+                            contentResolver.openInputStream(it)?.use { inputStream ->
+                                val backupJson = inputStream.bufferedReader().readText()
+                                val backup = Json.decodeFromString<WorkoutBackup>(backupJson)
+                                
+                                dataStore.edit { prefs ->
+                                    prefs[SESSIONS_KEY] = Json.encodeToString(backup.sessions)
+                                    prefs[EXERCISES_KEY] = Json.encodeToString(backup.sessionExercises)
+                                    prefs[SHOW_RPE_KEY] = backup.showRpe
+                                    prefs[SHOW_RIR_KEY] = backup.showRir
+                                    prefs[INCREMENT_KEY] = backup.weightIncrement
+                                }
+
+                                // Update local state
+                                sessions.clear()
+                                sessions.addAll(backup.sessions)
+                                sessionExercises.clear()
+                                backup.sessionExercises.forEach { (key, value) ->
+                                    sessionExercises[key] = mutableStateListOf<Exercise>().apply { addAll(value) }
+                                }
+                                showRpe = backup.showRpe
+                                showRir = backup.showRir
+                                weightIncrement = backup.weightIncrement
+                                accentColor = Color(0xFF2196F3) // Reset to default on import or handle separately
+                                if (sessions.isNotEmpty()) selectedSession = sessions.first()
+                                
+                                Toast.makeText(this@MainActivity, "Data imported successfully", Toast.LENGTH_SHORT).show()
+                            }
+                        } catch (e: Exception) {
+                            Toast.makeText(this@MainActivity, "Import failed: ${e.message}", Toast.LENGTH_LONG).show()
+                        }
                     }
                 }
             }
@@ -305,7 +394,10 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     isEditMode = isEditMode,
-                    onEditModeChange = { isEditMode = it }
+                    onEditModeChange = { isEditMode = it },
+                    accentColor = accentColor,
+                    onExportData = { exportLauncher.launch("ospot_backup.json") },
+                    onImportData = { importLauncher.launch(arrayOf("application/json")) }
                 )
             }
         }
@@ -347,7 +439,10 @@ fun WorkoutAppScreen(
     onRenameExercise: (Int, String) -> Unit,
     onMoveExercise: (Int, Int) -> Unit,
     isEditMode: Boolean,
-    onEditModeChange: (Boolean) -> Unit
+    onEditModeChange: (Boolean) -> Unit,
+    accentColor: Color,
+    onExportData: () -> Unit,
+    onImportData: () -> Unit
 ) {
     var showDeleteExerciseDialog by remember { mutableStateOf(false) }
     var exerciseIndexToDelete by remember { mutableIntStateOf(-1) }
@@ -492,17 +587,32 @@ fun WorkoutAppScreen(
                         ) {
                             sessions.forEach { session ->
                                 val isSelected = selectedSession == session
+                                val backgroundColor by animateColorAsState(
+                                    targetValue = if (isSelected) Color(0xFF2A2A2A) else Color(0xFF161616),
+                                    animationSpec = tween(durationMillis = 300),
+                                    label = "SessionBgColor"
+                                )
+                                val borderColor by animateColorAsState(
+                                    targetValue = if (isSelected) accentColor.copy(alpha = 0.6f) else Color.Gray.copy(alpha = 0.25f),
+                                    animationSpec = tween(durationMillis = 300),
+                                    label = "SessionBorderColor"
+                                )
+                                val borderWidth by animateDpAsState(
+                                    targetValue = if (isSelected) 1.5.dp else 1.dp,
+                                    animationSpec = tween(durationMillis = 300),
+                                    label = "SessionBorderWidth"
+                                )
 
                                 Box(
                                     modifier = Modifier
                                         .padding(end = 8.dp)
                                         .background(
-                                            color = if (isSelected) Color(0xFF242424) else Color(0xFF161616),
+                                            color = backgroundColor,
                                             shape = RoundedCornerShape(20.dp)
                                         )
                                         .border(
-                                            width = 1.dp,
-                                            color = if (isSelected) Color.White.copy(alpha = 0.4f) else Color.Gray.copy(alpha = 0.25f),
+                                            width = borderWidth,
+                                            color = borderColor,
                                             shape = RoundedCornerShape(20.dp)
                                         )
                                         // Fix: Removed ripple effect from session button taps
@@ -610,6 +720,7 @@ fun WorkoutAppScreen(
                                 onRename = { newName -> onRenameExercise(index, newName) },
                                 onMoveUp = if (index > 0) { { onMoveExercise(index, index - 1) } } else null,
                                 onMoveDown = if (index < exercises.size - 1) { { onMoveExercise(index, index + 1) } } else null,
+                                accentColor = accentColor,
                                 onDeleteClick = {
                                     exerciseIndexToDelete = index
                                     showDeleteExerciseDialog = true
@@ -634,7 +745,10 @@ fun WorkoutAppScreen(
                         onRirChange = onRirChange,
                         increment = weightIncrement,
                         onIncrementChange = onIncrementChange,
-                        onBackClick = { onScreenChange("workout_log") }
+                        accentColor = accentColor,
+                        onBackClick = { onScreenChange("workout_log") },
+                        onExportData = onExportData,
+                        onImportData = onImportData
                     )
                 }
             }
@@ -807,7 +921,7 @@ fun WorkoutAppScreen(
                         showDeleteSessionDialog = false
                     }
                 ) {
-                    Text("Delete", color = Color.Red, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    Text("Delete", color = accentColor, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                 }
             },
             dismissButton = {
@@ -852,7 +966,7 @@ fun WorkoutAppScreen(
                         showDeleteExerciseDialog = false
                     }
                 ) {
-                    Text("Delete", color = Color.Red, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    Text("Delete", color = accentColor, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                 }
             },
             dismissButton = {
@@ -873,7 +987,10 @@ fun SettingsScreen(
     onRirChange: (Boolean) -> Unit,
     increment: String,
     onIncrementChange: (String) -> Unit,
-    onBackClick: () -> Unit
+    accentColor: Color,
+    onBackClick: () -> Unit,
+    onExportData: () -> Unit,
+    onImportData: () -> Unit
 ){
     var incrementMenuExpanded by remember { mutableStateOf(false) }
 
@@ -1031,6 +1148,44 @@ fun SettingsScreen(
                         }
                     }
                 }
+
+                Spacer(modifier = Modifier.height(24.dp))
+                Divider(color = Color.Gray.copy(alpha = 0.15f))
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Text(
+                    text = "Data Management",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF1E1E1E), RoundedCornerShape(12.dp))
+                        .border(1.dp, Color.Gray.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+                        .clickable { onExportData() }
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("Export Workout Data (JSON)", color = Color.White, fontSize = 14.sp)
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF1E1E1E), RoundedCornerShape(12.dp))
+                        .border(1.dp, Color.Gray.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+                        .clickable { onImportData() }
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("Import Workout Data (JSON)", color = Color.White, fontSize = 14.sp)
+                }
             }
         }
     }
@@ -1050,6 +1205,7 @@ fun ExerciseBox(
     onRename: (String) -> Unit,
     onMoveUp: (() -> Unit)? = null,
     onMoveDown: (() -> Unit)? = null,
+    accentColor: Color,
     onDeleteClick: () -> Unit
 ) {
     var addSetMenuExpanded by remember { mutableStateOf(false) }
@@ -1076,10 +1232,19 @@ fun ExerciseBox(
         Card(
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(
-                containerColor = Color(0xFF161616)
+                containerColor = Color.Transparent
             ),
             modifier = Modifier
                 .fillMaxWidth()
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFF1E1E1E),
+                            Color(0xFF161616)
+                        )
+                    ),
+                    shape = RoundedCornerShape(16.dp)
+                )
                 .border(
                     width = 1.dp,
                     color = Color.Gray.copy(alpha = 0.2f),
@@ -1352,8 +1517,9 @@ fun ExerciseBox(
             } else {
                 Text(
                     text = "+ Add set",
-                    color = Color.Gray.copy(alpha = 0.7f),
+                    color = accentColor.copy(alpha = 0.9f),
                     fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
                     modifier = Modifier
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
