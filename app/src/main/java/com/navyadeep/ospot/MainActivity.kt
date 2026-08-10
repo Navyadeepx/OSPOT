@@ -46,6 +46,7 @@ import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.Serializable
@@ -78,15 +79,36 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        val initialPrefs = runBlocking { dataStore.data.first() }
+        val initialSessionsJson = initialPrefs[SESSIONS_KEY] ?: ""
+        val initialSessions = if (initialSessionsJson.isNotEmpty()) {
+            try {
+                Json.decodeFromString<List<String>>(initialSessionsJson)
+            } catch (e: Exception) {
+                emptyList()
+            }
+        } else emptyList()
+        val initialSelectedSession = initialSessions.firstOrNull() ?: ""
+
+        val initialExercisesJson = initialPrefs[EXERCISES_KEY] ?: ""
+        val initialExercisesMap = if (initialExercisesJson.isNotEmpty()) {
+            try {
+                Json.decodeFromString<Map<String, List<Exercise>>>(initialExercisesJson)
+            } catch (e: Exception) {
+                emptyMap()
+            }
+        } else emptyMap()
+
         setContent {
             val scope = rememberCoroutineScope()
 
             var currentScreen by remember { mutableStateOf("workout_log") }
-            var showRpe by remember { mutableStateOf(false) }
-            var showRir by remember { mutableStateOf(false) }
-            var weightIncrement by remember { mutableStateOf("2.5") }
-            val sessions = remember { mutableStateListOf<String>() }
-            var selectedSession by remember { mutableStateOf("") }
+            var showRpe by remember { mutableStateOf(initialPrefs[SHOW_RPE_KEY] ?: false) }
+            var showRir by remember { mutableStateOf(initialPrefs[SHOW_RIR_KEY] ?: false) }
+            var weightIncrement by remember { mutableStateOf(initialPrefs[INCREMENT_KEY] ?: "2.5") }
+            val sessions = remember { mutableStateListOf<String>().apply { addAll(initialSessions) } }
+            var selectedSession by remember { mutableStateOf(initialSelectedSession) }
             var menuExpanded by remember { mutableStateOf(false) }
             var isEditMode by remember { mutableStateOf(false) }
 
@@ -94,9 +116,16 @@ class MainActivity : ComponentActivity() {
             var newSessionNameText by remember { mutableStateOf("") }
             var showAddExerciseDialog by remember { mutableStateOf(false) }
             var newExerciseNameText by remember { mutableStateOf("") }
-            val sessionExercises = remember { mutableStateMapOf<String, androidx.compose.runtime.snapshots.SnapshotStateList<Exercise>>() }
+            val sessionExercises = remember {
+                mutableStateMapOf<String, androidx.compose.runtime.snapshots.SnapshotStateList<Exercise>>().apply {
+                    initialExercisesMap.forEach { (key, value) ->
+                        put(key, mutableStateListOf<Exercise>().apply { addAll(value) })
+                    }
+                }
+            }
 
             LaunchedEffect(Unit) {
+                // Background update just in case, though initial load covers it
                 val prefs = dataStore.data.first()
                 showRpe = prefs[SHOW_RPE_KEY] ?: false
                 showRir = prefs[SHOW_RIR_KEY] ?: false
@@ -106,10 +135,12 @@ class MainActivity : ComponentActivity() {
                 if (savedSessionsJson.isNotEmpty()) {
                     try {
                         val decodedList = Json.decodeFromString<List<String>>(savedSessionsJson)
-                        sessions.clear()
-                        sessions.addAll(decodedList)
-                        if (sessions.isNotEmpty()) {
-                            selectedSession = sessions.first()
+                        if (sessions.toList() != decodedList) {
+                            sessions.clear()
+                            sessions.addAll(decodedList)
+                            if (selectedSession.isEmpty() && sessions.isNotEmpty()) {
+                                selectedSession = sessions.first()
+                            }
                         }
                     } catch (e: Exception) {
                         e.printStackTrace()
@@ -121,7 +152,10 @@ class MainActivity : ComponentActivity() {
                     try {
                         val decodedMap = Json.decodeFromString<Map<String, List<Exercise>>>(savedExercisesJson)
                         decodedMap.forEach { (key, value) ->
-                            sessionExercises[key] = mutableStateListOf<Exercise>().apply { addAll(value) }
+                            val currentList = sessionExercises[key]
+                            if (currentList == null || currentList.toList() != value) {
+                                sessionExercises[key] = mutableStateListOf<Exercise>().apply { addAll(value) }
+                            }
                         }
                     } catch (e: Exception) {
                         e.printStackTrace()
