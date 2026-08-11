@@ -10,10 +10,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.*
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,7 +29,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.DpOffset
 import com.navyadeep.ospot.ui.theme.OSPOTTheme
+import com.navyadeep.ospot.R
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
@@ -42,9 +45,11 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -81,7 +86,8 @@ data class WorkoutBackup(
     val sessionExercises: Map<String, List<Exercise>>,
     val showRpe: Boolean,
     val showRir: Boolean,
-    val weightIncrement: String
+    val weightIncrement: String,
+    val accentColor: Long = 0xFFFFFFFFL
 )
 
 class MainActivity : ComponentActivity() {
@@ -89,6 +95,7 @@ class MainActivity : ComponentActivity() {
     private val SHOW_RPE_KEY = booleanPreferencesKey("show_rpe")
     private val SHOW_RIR_KEY = booleanPreferencesKey("show_rir")
     private val INCREMENT_KEY = stringPreferencesKey("weight_increment")
+    private val ACCENT_COLOR_KEY = longPreferencesKey("accent_color")
     private val SESSIONS_KEY = stringPreferencesKey("workout_sessions")
     private val EXERCISES_KEY = stringPreferencesKey("session_exercises")
 
@@ -115,8 +122,8 @@ class MainActivity : ComponentActivity() {
                 emptyMap()
             }
         } else emptyMap()
-        
-        val initialAccentColor = 0xFFFFFFFFL
+
+        val initialAccentColor = initialPrefs[ACCENT_COLOR_KEY] ?: 0xFFFFFFFFL
 
         setContent {
             val scope = rememberCoroutineScope()
@@ -136,7 +143,8 @@ class MainActivity : ComponentActivity() {
                                 sessionExercises = Json.decodeFromString(exercisesJson),
                                 showRpe = prefs[SHOW_RPE_KEY] ?: false,
                                 showRir = prefs[SHOW_RIR_KEY] ?: false,
-                                weightIncrement = prefs[INCREMENT_KEY] ?: "2.5"
+                                weightIncrement = prefs[INCREMENT_KEY] ?: "2.5",
+                                accentColor = prefs[ACCENT_COLOR_KEY] ?: 0xFFFFFFFFL
                             )
                             
                             val backupJson = Json.encodeToString(backup)
@@ -164,7 +172,7 @@ class MainActivity : ComponentActivity() {
             var newSessionNameText by remember { mutableStateOf("") }
             var showAddExerciseDialog by remember { mutableStateOf(false) }
             var newExerciseNameText by remember { mutableStateOf("") }
-            var accentColor by remember { mutableStateOf(Color(initialAccentColor)) }
+            var accentColor by remember { mutableStateOf(Color(initialAccentColor.toULong())) }
             val sessionExercises = remember {
                 mutableStateMapOf<String, androidx.compose.runtime.snapshots.SnapshotStateList<Exercise>>().apply {
                     initialExercisesMap.forEach { (key, value) ->
@@ -189,6 +197,7 @@ class MainActivity : ComponentActivity() {
                                     prefs[SHOW_RPE_KEY] = backup.showRpe
                                     prefs[SHOW_RIR_KEY] = backup.showRir
                                     prefs[INCREMENT_KEY] = backup.weightIncrement
+                                    prefs[ACCENT_COLOR_KEY] = backup.accentColor
                                 }
 
                                 // Update local state
@@ -201,7 +210,7 @@ class MainActivity : ComponentActivity() {
                                 showRpe = backup.showRpe
                                 showRir = backup.showRir
                                 weightIncrement = backup.weightIncrement
-                                accentColor = Color(0xFF2196F3) // Reset to default on import or handle separately
+                                accentColor = Color(backup.accentColor.toULong())
                                 if (sessions.isNotEmpty()) selectedSession = sessions.first()
                                 
                                 Toast.makeText(this@MainActivity, "Data imported successfully", Toast.LENGTH_SHORT).show()
@@ -219,6 +228,7 @@ class MainActivity : ComponentActivity() {
                 showRpe = prefs[SHOW_RPE_KEY] ?: false
                 showRir = prefs[SHOW_RIR_KEY] ?: false
                 weightIncrement = prefs[INCREMENT_KEY] ?: "2.5"
+                accentColor = Color((prefs[ACCENT_COLOR_KEY] ?: 0xFFFFFFFFL).toULong())
 
                 val savedSessionsJson = prefs[SESSIONS_KEY] ?: ""
                 if (savedSessionsJson.isNotEmpty()) {
@@ -265,6 +275,11 @@ class MainActivity : ComponentActivity() {
             val saveIncrement: (String) -> Unit = { value ->
                 weightIncrement = value
                 scope.launch { dataStore.edit { it[INCREMENT_KEY] = value } }
+            }
+
+            val saveAccentColor: (Color) -> Unit = { color ->
+                accentColor = color
+                scope.launch { dataStore.edit { it[ACCENT_COLOR_KEY] = color.value.toLong() } }
             }
 
             val saveSessions: () -> Unit = {
@@ -396,6 +411,7 @@ class MainActivity : ComponentActivity() {
                     isEditMode = isEditMode,
                     onEditModeChange = { isEditMode = it },
                     accentColor = accentColor,
+                    onAccentColorChange = saveAccentColor,
                     onExportData = { exportLauncher.launch("ospot_backup.json") },
                     onImportData = { importLauncher.launch(arrayOf("application/json")) }
                 )
@@ -441,6 +457,7 @@ fun WorkoutAppScreen(
     isEditMode: Boolean,
     onEditModeChange: (Boolean) -> Unit,
     accentColor: Color,
+    onAccentColorChange: (Color) -> Unit,
     onExportData: () -> Unit,
     onImportData: () -> Unit
 ) {
@@ -465,8 +482,9 @@ fun WorkoutAppScreen(
                     )
             ) {
                 TopAppBar(
+                    modifier = Modifier.height(80.dp),
                     title = {
-                        Box {
+                        Box(modifier = Modifier.fillMaxHeight(), contentAlignment = Alignment.CenterStart) {
                             Row(
                                 modifier = Modifier
                                     .clickable(
@@ -475,13 +493,15 @@ fun WorkoutAppScreen(
                                     ) {
                                         onMenuToggle(!menuExpanded)
                                     }
-                                    .padding(vertical = 8.dp),
+                                    .padding(start = 0.dp)
+                                    .offset(x = (-4).dp)
+                                    .padding(vertical = 0.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = "OSPOT",
-                                    fontFamily = FontFamily.SansSerif,
-                                    fontWeight = FontWeight.Black
+                                Image(
+                                    painter = painterResource(id = R.drawable.ospot_logo),
+                                    contentDescription = "OSPOT",
+                                    modifier = Modifier.height(32.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Icon(
@@ -493,10 +513,20 @@ fun WorkoutAppScreen(
                             DropdownMenu(
                                 expanded = menuExpanded,
                                 onDismissRequest = { onMenuToggle(false) },
+                                offset = DpOffset(x = (-8).dp, y = 0.dp),
                                 shape = RoundedCornerShape(12.dp),
-                                containerColor = Color(0xFF1E1E1E),
+                                containerColor = Color.Transparent,
                                 modifier = Modifier
                                     .width(85.dp)
+                                    .background(
+                                        brush = Brush.verticalGradient(
+                                            colors = listOf(
+                                                Color(0xFF1E1E1E),
+                                                Color(0xFF161616)
+                                            )
+                                        ),
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
                                     .border(1.dp, Color.Gray.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
                             ) {
                                 DropdownMenuItem(
@@ -515,6 +545,12 @@ fun WorkoutAppScreen(
                                     },
                                     modifier = Modifier.height(42.dp).padding(horizontal = 4.dp)
                                 )
+                                DropdownMenuItem(
+                                    text = { Text("v${BuildConfig.VERSION_NAME}", color = Color.Gray, fontSize = 12.sp) },
+                                    onClick = { },
+                                    modifier = Modifier.height(32.dp).padding(horizontal = 4.dp),
+                                    enabled = false
+                                )
                             }
                         }
                     },
@@ -522,34 +558,40 @@ fun WorkoutAppScreen(
                         containerColor = Color.Transparent
                     ),
                     actions = {
-                        if (currentScreen == "settings") {
-                            IconButton(onClick = { onScreenChange("workout_log") }) {
-                                Icon(
-                                    imageVector = Icons.Filled.Close,
-                                    contentDescription = "Exit Settings",
-                                    tint = Color.White
-                                )
-                            }
-                        } else {
-                            IconButton(onClick = { onScreenChange("settings") }) {
-                                Icon(
-                                    imageVector = Icons.Filled.Close,
-                                    contentDescription = "Swap View",
-                                    tint = Color.Transparent
-                                )
-                            }
-                            IconButton(onClick = {
-                                if (isEditMode) {
-                                    onEditModeChange(false)
-                                } else {
-                                    onShowExerciseDialogChange(true)
+                        Row(modifier = Modifier.fillMaxHeight(), verticalAlignment = Alignment.CenterVertically) {
+                            if (currentScreen == "settings") {
+                                IconButton(onClick = { onScreenChange("workout_log") }) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Close,
+                                        contentDescription = "Exit Settings",
+                                        tint = Color.White
+                                    )
                                 }
-                            }) {
-                                Icon(
-                                    imageVector = if (isEditMode) Icons.Filled.Close else Icons.Filled.Add,
-                                    contentDescription = if (isEditMode) "Exit Edit Mode" else "New",
-                                    tint = Color.White
-                                )
+                            } else {
+                                IconButton(onClick = { onScreenChange("settings") }) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Close,
+                                        contentDescription = "Swap View",
+                                        tint = Color.Transparent
+                                    )
+                                }
+                                IconButton(
+                                    onClick = {
+                                        if (isEditMode) {
+                                            onEditModeChange(false)
+                                        } else {
+                                            onShowExerciseDialogChange(true)
+                                        }
+                                    },
+                                    modifier = Modifier.offset(x = 8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (isEditMode) Icons.Filled.Close else Icons.Filled.Add,
+                                        contentDescription = if (isEditMode) "Exit Edit Mode" else "New",
+                                        tint = accentColor,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -580,7 +622,7 @@ fun WorkoutAppScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(horizontal = 12.dp)
+                                .padding(start = 12.dp, end = 12.dp)
                                 .horizontalScroll(rememberScrollState()),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Start
@@ -687,47 +729,69 @@ fun WorkoutAppScreen(
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize()) {
             if (currentScreen == "workout_log") {
-                if (selectedSession.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Create a session to begin logging",
-                            fontSize = 18.sp,
-                            color = Color.Gray
-                        )
-                    }
-                } else {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
-                    ) {
-                        Spacer(modifier = Modifier.height(innerPadding.calculateTopPadding()))
-                        exercises.forEachIndexed { index, exercise ->
-                            ExerciseBox(
-                                name = exercise.name,
-                                sets = exercise.sets,
-                                isEditMode = isEditMode,
-                                showRpe = showRpe,
-                                showRir = showRir,
-                                weightIncrement = weightIncrement,
-                                onAddSet = { type -> onAddSet(index, type) },
-                                onUpdateSet = { setIndex, w, r, rir, rpe -> onUpdateSet(index, setIndex, w, r, rir, rpe) },
-                                onRemoveSet = { setIndex -> onRemoveSet(index, setIndex) },
-                                onRename = { newName -> onRenameExercise(index, newName) },
-                                onMoveUp = if (index > 0) { { onMoveExercise(index, index - 1) } } else null,
-                                onMoveDown = if (index < exercises.size - 1) { { onMoveExercise(index, index + 1) } } else null,
-                                accentColor = accentColor,
-                                onDeleteClick = {
-                                    exerciseIndexToDelete = index
-                                    showDeleteExerciseDialog = true
-                                }
+                AnimatedContent(
+                    targetState = selectedSession to exercises,
+                    transitionSpec = {
+                        fadeIn(animationSpec = tween(300)) togetherWith
+                                fadeOut(animationSpec = tween(300))
+                    },
+                    label = "SessionChangeAnimation"
+                ) { (targetSession, targetExercises) ->
+                    if (targetSession.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Create a session to begin logging",
+                                fontSize = 18.sp,
+                                color = Color.Gray
                             )
                         }
-                        Spacer(modifier = Modifier.height(innerPadding.calculateBottomPadding()))
+                    } else {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            Spacer(modifier = Modifier.height(innerPadding.calculateTopPadding()))
+                            targetExercises.forEachIndexed { index, exercise ->
+                                ExerciseBox(
+                                    name = exercise.name,
+                                    sets = exercise.sets,
+                                    isEditMode = isEditMode,
+                                    showRpe = showRpe,
+                                    showRir = showRir,
+                                    weightIncrement = weightIncrement,
+                                    onAddSet = { type -> onAddSet(index, type) },
+                                    onUpdateSet = { setIndex, w, r, rir, rpe ->
+                                        onUpdateSet(
+                                            index,
+                                            setIndex,
+                                            w,
+                                            r,
+                                            rir,
+                                            rpe
+                                        )
+                                    },
+                                    onRemoveSet = { setIndex -> onRemoveSet(index, setIndex) },
+                                    onRename = { newName -> onRenameExercise(index, newName) },
+                                    onMoveUp = if (index > 0) {
+                                        { onMoveExercise(index, index - 1) }
+                                    } else null,
+                                    onMoveDown = if (index < targetExercises.size - 1) {
+                                        { onMoveExercise(index, index + 1) }
+                                    } else null,
+                                    accentColor = accentColor,
+                                    onDeleteClick = {
+                                        exerciseIndexToDelete = index
+                                        showDeleteExerciseDialog = true
+                                    }
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(innerPadding.calculateBottomPadding()))
+                        }
                     }
                 }
             }
@@ -746,6 +810,7 @@ fun WorkoutAppScreen(
                         increment = weightIncrement,
                         onIncrementChange = onIncrementChange,
                         accentColor = accentColor,
+                        onAccentColorChange = onAccentColorChange,
                         onBackClick = { onScreenChange("workout_log") },
                         onExportData = onExportData,
                         onImportData = onImportData
@@ -988,6 +1053,7 @@ fun SettingsScreen(
     increment: String,
     onIncrementChange: (String) -> Unit,
     accentColor: Color,
+    onAccentColorChange: (Color) -> Unit,
     onBackClick: () -> Unit,
     onExportData: () -> Unit,
     onImportData: () -> Unit
@@ -1100,9 +1166,18 @@ fun SettingsScreen(
                             expanded = incrementMenuExpanded,
                             onDismissRequest = { incrementMenuExpanded = false },
                             shape = RoundedCornerShape(12.dp),
-                            containerColor = Color(0xFF1E1E1E),
+                            containerColor = Color.Transparent,
                             modifier = Modifier
                                 .width(100.dp)
+                                .background(
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color(0xFF1E1E1E),
+                                            Color(0xFF161616)
+                                        )
+                                    ),
+                                    shape = RoundedCornerShape(12.dp)
+                                )
                                 .border(1.dp, Color.Gray.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
                         ) {
                             DropdownMenuItem(
@@ -1145,6 +1220,62 @@ fun SettingsScreen(
                                 },
                                 modifier = Modifier.height(40.dp).padding(horizontal = 4.dp)
                             )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Text(
+                    text = "Accent Color",
+                    fontSize = 16.sp,
+                    color = Color.White.copy(alpha = 0.9f),
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+
+                val accentColors = listOf(
+                    Color(0xFF8B00FFL), // Violet
+                    Color(0xFF3F51B5L), // Indigo
+                    Color(0xFF2196F3L), // Blue
+                    Color(0xFF4CAF50L), // Green
+                    Color(0xFFFFEB3BL), // Yellow
+                    Color(0xFFFF9800L), // Orange
+                    Color(0xFFF44336L), // Red
+                    Color(0xFFFFFFFFL)  // White
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    accentColors.forEach { color ->
+                        val isSelected = accentColor == color
+                        val isNone = color == Color(0xFFFFFFFFL)
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .background(if (isNone) Color(0xFF2A2A2A) else color, RoundedCornerShape(16.dp))
+                                .border(
+                                    width = if (isSelected) 2.dp else 1.dp,
+                                    color = if (isSelected) Color.White else Color.Gray.copy(alpha = 0.2f),
+                                    shape = RoundedCornerShape(16.dp)
+                                )
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) { onAccentColorChange(color) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isNone) {
+                                Canvas(modifier = Modifier.size(20.dp)) {
+                                    drawLine(
+                                        color = Color.Gray,
+                                        start = androidx.compose.ui.geometry.Offset(0f, size.height),
+                                        end = androidx.compose.ui.geometry.Offset(size.width, 0f),
+                                        strokeWidth = 1.5.dp.toPx()
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -1534,9 +1665,18 @@ fun ExerciseBox(
                     expanded = addSetMenuExpanded,
                     onDismissRequest = { addSetMenuExpanded = false },
                     shape = RoundedCornerShape(12.dp),
-                    containerColor = Color(0xFF1E1E1E),
+                    containerColor = Color.Transparent,
                     modifier = Modifier
                         .width(180.dp)
+                        .background(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    Color(0xFF1E1E1E),
+                                    Color(0xFF161616)
+                                )
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        )
                         .border(1.dp, Color.Gray.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
                 ) {
                     DropdownMenuItem(
