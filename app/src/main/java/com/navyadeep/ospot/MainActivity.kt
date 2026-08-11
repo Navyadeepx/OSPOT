@@ -47,6 +47,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
@@ -172,7 +173,7 @@ class MainActivity : ComponentActivity() {
             var newSessionNameText by remember { mutableStateOf("") }
             var showAddExerciseDialog by remember { mutableStateOf(false) }
             var newExerciseNameText by remember { mutableStateOf("") }
-            var accentColor by remember { mutableStateOf(Color(initialAccentColor.toULong())) }
+            var accentColor by remember { mutableStateOf(Color(initialAccentColor.toInt())) }
             val sessionExercises = remember {
                 mutableStateMapOf<String, androidx.compose.runtime.snapshots.SnapshotStateList<Exercise>>().apply {
                     initialExercisesMap.forEach { (key, value) ->
@@ -210,7 +211,7 @@ class MainActivity : ComponentActivity() {
                                 showRpe = backup.showRpe
                                 showRir = backup.showRir
                                 weightIncrement = backup.weightIncrement
-                                accentColor = Color(backup.accentColor.toULong())
+                                accentColor = Color(backup.accentColor.toInt())
                                 if (sessions.isNotEmpty()) selectedSession = sessions.first()
                                 
                                 Toast.makeText(this@MainActivity, "Data imported successfully", Toast.LENGTH_SHORT).show()
@@ -228,7 +229,7 @@ class MainActivity : ComponentActivity() {
                 showRpe = prefs[SHOW_RPE_KEY] ?: false
                 showRir = prefs[SHOW_RIR_KEY] ?: false
                 weightIncrement = prefs[INCREMENT_KEY] ?: "2.5"
-                accentColor = Color((prefs[ACCENT_COLOR_KEY] ?: 0xFFFFFFFFL).toULong())
+                accentColor = Color((prefs[ACCENT_COLOR_KEY] ?: 0xFFFFFFFFL).toInt())
 
                 val savedSessionsJson = prefs[SESSIONS_KEY] ?: ""
                 if (savedSessionsJson.isNotEmpty()) {
@@ -279,7 +280,8 @@ class MainActivity : ComponentActivity() {
 
             val saveAccentColor: (Color) -> Unit = { color ->
                 accentColor = color
-                scope.launch { dataStore.edit { it[ACCENT_COLOR_KEY] = color.value.toLong() } }
+                // Use toArgb() to store a standard 32-bit color value, avoiding ColorSpace issues with packed ULong
+                scope.launch { dataStore.edit { it[ACCENT_COLOR_KEY] = color.toArgb().toLong() } }
             }
 
             val saveSessions: () -> Unit = {
@@ -1234,14 +1236,14 @@ fun SettingsScreen(
                 )
 
                 val accentColors = listOf(
-                    Color(0xFF8B00FFL), // Violet
-                    Color(0xFF3F51B5L), // Indigo
-                    Color(0xFF2196F3L), // Blue
-                    Color(0xFF4CAF50L), // Green
-                    Color(0xFFFFEB3BL), // Yellow
-                    Color(0xFFFF9800L), // Orange
-                    Color(0xFFF44336L), // Red
-                    Color(0xFFFFFFFFL)  // White
+                    Color(0xFF8B00FF.toInt()), // Violet
+                    Color(0xFF3F51B5.toInt()), // Indigo
+                    Color(0xFF2196F3.toInt()), // Blue
+                    Color(0xFF4CAF50.toInt()), // Green
+                    Color(0xFFFFEB3B.toInt()), // Yellow
+                    Color(0xFFFF9800.toInt()), // Orange
+                    Color(0xFFF44336.toInt()), // Red
+                    Color(0xFFFFFFFF.toInt())  // White
                 )
 
                 Row(
@@ -1250,7 +1252,7 @@ fun SettingsScreen(
                 ) {
                     accentColors.forEach { color ->
                         val isSelected = accentColor == color
-                        val isNone = color == Color(0xFFFFFFFFL)
+                        val isNone = color == Color(0xFFFFFFFF.toInt())
                         Box(
                             modifier = Modifier
                                 .size(32.dp)
