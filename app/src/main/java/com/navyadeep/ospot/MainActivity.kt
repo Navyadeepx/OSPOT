@@ -66,6 +66,9 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.Serializable
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 val Context.dataStore by preferencesDataStore(name = "ospot_settings")
 
@@ -417,7 +420,10 @@ class MainActivity : ComponentActivity() {
                     onEditModeChange = { isEditMode = it },
                     accentColor = accentColor,
                     onAccentColorChange = saveAccentColor,
-                    onExportData = { exportLauncher.launch("ospot_backup.json") },
+                    onExportData = {
+                        val dateStr = SimpleDateFormat("dd-MMM-yyyy", Locale.getDefault()).format(Date()).lowercase(Locale.getDefault())
+                        exportLauncher.launch("OSPOT_EXPORT_$dateStr.json")
+                    },
                     onImportData = { importLauncher.launch(arrayOf("application/json")) }
                 )
             }
@@ -471,6 +477,15 @@ fun WorkoutAppScreen(
 
     var showDeleteSessionDialog by remember { mutableStateOf(false) }
     var sessionToDelete by remember { mutableStateOf("") }
+
+    val cardGradient = remember {
+        Brush.verticalGradient(
+            colors = listOf(
+                Color(0xFF1E1E1E),
+                Color(0xFF161616)
+            )
+        )
+    }
 
     val isAppStarting = remember { mutableStateOf(true) }
     LaunchedEffect(Unit) {
@@ -644,11 +659,6 @@ fun WorkoutAppScreen(
                         ) {
                             sessions.forEach { session ->
                                 val isSelected = selectedSession == session
-                                val backgroundColor by animateColorAsState(
-                                    targetValue = if (isSelected) Color(0xFF2A2A2A) else Color(0xFF161616),
-                                    animationSpec = tween(durationMillis = 300),
-                                    label = "SessionBgColor"
-                                )
                                 val borderColor by animateColorAsState(
                                     targetValue = if (isSelected) accentColor.copy(alpha = 0.6f) else Color.Gray.copy(alpha = 0.25f),
                                     animationSpec = tween(durationMillis = 300),
@@ -664,7 +674,7 @@ fun WorkoutAppScreen(
                                     modifier = Modifier
                                         .padding(end = 8.dp)
                                         .background(
-                                            color = backgroundColor,
+                                            brush = cardGradient,
                                             shape = RoundedCornerShape(20.dp)
                                         )
                                         .border(
@@ -718,7 +728,7 @@ fun WorkoutAppScreen(
                             Box(
                                 modifier = Modifier
                                     .size(38.dp)
-                                    .background(Color(0xFF161616), shape = RoundedCornerShape(50.dp))
+                                    .background(brush = cardGradient, shape = RoundedCornerShape(50.dp))
                                     .border(width = 1.dp, color = Color.Gray.copy(alpha = 0.25f), shape = RoundedCornerShape(50.dp))
                                     // Fix: Removed ripple effect from dialog + button tap
                                     .clickable(
@@ -782,7 +792,7 @@ fun WorkoutAppScreen(
                                     Box(
                                         modifier = Modifier
                                             .size(22.dp)
-                                            .background(Color(0xFF161616), shape = RoundedCornerShape(50.dp))
+                                            .background(brush = cardGradient, shape = RoundedCornerShape(50.dp))
                                             .border(width = 1.dp, color = Color.Gray.copy(alpha = 0.25f), shape = RoundedCornerShape(50.dp)),
                                         contentAlignment = Alignment.Center
                                     ) {
