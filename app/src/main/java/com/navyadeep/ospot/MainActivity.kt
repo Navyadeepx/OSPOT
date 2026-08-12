@@ -21,6 +21,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -57,6 +59,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -469,19 +472,26 @@ fun WorkoutAppScreen(
     var showDeleteSessionDialog by remember { mutableStateOf(false) }
     var sessionToDelete by remember { mutableStateOf("") }
 
+    val isAppStarting = remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        delay(500) // Small grace period for initial layout
+        isAppStarting.value = false
+    }
+
     Scaffold(
         topBar = {
+            val topGradient = remember {
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color.Black.copy(alpha = 1.0f),
+                        Color.Transparent
+                    )
+                )
+            }
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Black.copy(alpha = 1.0f),
-                                Color.Transparent
-                            )
-                        )
-                    )
+                    .background(topGradient)
             ) {
                 TopAppBar(
                     modifier = Modifier.height(80.dp),
@@ -577,22 +587,24 @@ fun WorkoutAppScreen(
                                         tint = Color.Transparent
                                     )
                                 }
-                                IconButton(
-                                    onClick = {
-                                        if (isEditMode) {
-                                            onEditModeChange(false)
-                                        } else {
-                                            onShowExerciseDialogChange(true)
-                                        }
-                                    },
-                                    modifier = Modifier.offset(x = 8.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = if (isEditMode) Icons.Filled.Close else Icons.Filled.Add,
-                                        contentDescription = if (isEditMode) "Exit Edit Mode" else "New",
-                                        tint = accentColor,
-                                        modifier = Modifier.size(28.dp)
-                                    )
+                                if (selectedSession.isNotEmpty()) {
+                                    IconButton(
+                                        onClick = {
+                                            if (isEditMode) {
+                                                onEditModeChange(false)
+                                            } else {
+                                                onShowExerciseDialogChange(true)
+                                            }
+                                        },
+                                        modifier = Modifier.offset(x = 8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isEditMode) Icons.Filled.Close else Icons.Filled.Add,
+                                            contentDescription = if (isEditMode) "Exit Edit Mode" else "New",
+                                            tint = accentColor,
+                                            modifier = Modifier.size(28.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -602,17 +614,18 @@ fun WorkoutAppScreen(
         },
         bottomBar = {
             if (currentScreen == "workout_log") {
+                val bottomGradient = remember {
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color.Black.copy(alpha = 1.0f)
+                        )
+                    )
+                }
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.Transparent,
-                                    Color.Black.copy(alpha = 1.0f)
-                                )
-                            )
-                        )
+                        .background(bottomGradient)
                 ) {
                     Surface(
                         color = Color.Transparent,
@@ -737,6 +750,7 @@ fun WorkoutAppScreen(
                         fadeIn(animationSpec = tween(300)) togetherWith
                                 fadeOut(animationSpec = tween(300))
                     },
+                    contentKey = { it.first }, // Only animate when the session name changes
                     label = "SessionChangeAnimation"
                 ) { (targetSession, targetExercises) ->
                     if (targetSession.isEmpty()) {
@@ -745,54 +759,157 @@ fun WorkoutAppScreen(
                                 .fillMaxSize(),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = "Create a session to begin logging",
-                                fontSize = 18.sp,
-                                color = Color.Gray
-                            )
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
+                                modifier = Modifier.padding(horizontal = 24.dp)
+                            ) {
+                                Text(
+                                    text = "Create a session to begin logging",
+                                    fontSize = 18.sp,
+                                    color = Color.White.copy(alpha = 0.9f),
+                                    modifier = Modifier.padding(bottom = 8.dp)
+                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Text(
+                                        text = "Use the ",
+                                        fontSize = 14.sp,
+                                        color = Color.Gray
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .size(22.dp)
+                                            .background(Color(0xFF161616), shape = RoundedCornerShape(50.dp))
+                                            .border(width = 1.dp, color = Color.Gray.copy(alpha = 0.25f), shape = RoundedCornerShape(50.dp)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Add,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                    }
+                                    Text(
+                                        text = " icon at the bottom left to create a session",
+                                        fontSize = 14.sp,
+                                        color = Color.Gray
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(24.dp))
+                                SetTypeLegend()
+                            }
                         }
                     } else {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .verticalScroll(rememberScrollState())
-                        ) {
-                            Spacer(modifier = Modifier.height(innerPadding.calculateTopPadding()))
-                            targetExercises.forEachIndexed { index, exercise ->
-                                ExerciseBox(
-                                    name = exercise.name,
-                                    sets = exercise.sets,
-                                    isEditMode = isEditMode,
-                                    showRpe = showRpe,
-                                    showRir = showRir,
-                                    weightIncrement = weightIncrement,
-                                    onAddSet = { type -> onAddSet(index, type) },
-                                    onUpdateSet = { setIndex, w, r, rir, rpe ->
-                                        onUpdateSet(
-                                            index,
-                                            setIndex,
-                                            w,
-                                            r,
-                                            rir,
-                                            rpe
+                        if (targetExercises.isEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center,
+                                    modifier = Modifier.padding(horizontal = 24.dp)
+                                ) {
+                                    Text(
+                                        text = "No exercises added",
+                                        fontSize = 18.sp,
+                                        color = Color.White.copy(alpha = 0.9f),
+                                        modifier = Modifier.padding(bottom = 8.dp)
+                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        Text(
+                                            text = "to add an exercise use the ",
+                                            fontSize = 14.sp,
+                                            color = Color.Gray
                                         )
-                                    },
-                                    onRemoveSet = { setIndex -> onRemoveSet(index, setIndex) },
-                                    onRename = { newName -> onRenameExercise(index, newName) },
-                                    onMoveUp = if (index > 0) {
-                                        { onMoveExercise(index, index - 1) }
-                                    } else null,
-                                    onMoveDown = if (index < targetExercises.size - 1) {
-                                        { onMoveExercise(index, index + 1) }
-                                    } else null,
-                                    accentColor = accentColor,
-                                    onDeleteClick = {
-                                        exerciseIndexToDelete = index
-                                        showDeleteExerciseDialog = true
+                                        Icon(
+                                            imageVector = Icons.Filled.Add,
+                                            contentDescription = null,
+                                            tint = accentColor,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Text(
+                                            text = " icon at the top right",
+                                            fontSize = 14.sp,
+                                            color = Color.Gray
+                                        )
                                     }
-                                )
+                                }
                             }
-                            Spacer(modifier = Modifier.height(innerPadding.calculateBottomPadding()))
+                        } else {
+                            val sessionTransitionTime = remember(targetSession) { System.currentTimeMillis() }
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(
+                                    top = innerPadding.calculateTopPadding(),
+                                    bottom = innerPadding.calculateBottomPadding()
+                                )
+                            ) {
+                                itemsIndexed(
+                                    items = targetExercises,
+                                    key = { index, exercise -> exercise.name + index }
+                                ) { index, exercise ->
+                                    val shouldAnimate = !isAppStarting.value && (System.currentTimeMillis() - sessionTransitionTime < 150)
+                                    var isVisible by remember(targetSession) { mutableStateOf(!shouldAnimate) }
+
+                                    LaunchedEffect(targetSession) {
+                                        if (shouldAnimate) {
+                                            delay(index * 60L)
+                                            isVisible = true
+                                        }
+                                    }
+
+                                    AnimatedVisibility(
+                                        visible = isVisible,
+                                        enter = slideInHorizontally(
+                                            initialOffsetX = { -150 },
+                                            animationSpec = tween(durationMillis = 400)
+                                        ) + fadeIn(animationSpec = tween(durationMillis = 400)),
+                                        exit = fadeOut(animationSpec = tween(durationMillis = 100))
+                                    ) {
+                                        ExerciseBox(
+                                            name = exercise.name,
+                                            sets = exercise.sets,
+                                            isEditMode = isEditMode,
+                                            showRpe = showRpe,
+                                            showRir = showRir,
+                                            weightIncrement = weightIncrement,
+                                            onAddSet = { type -> onAddSet(index, type) },
+                                            onUpdateSet = { setIndex, w, r, rir, rpe ->
+                                                onUpdateSet(
+                                                    index,
+                                                    setIndex,
+                                                    w,
+                                                    r,
+                                                    rir,
+                                                    rpe
+                                                )
+                                            },
+                                            onRemoveSet = { setIndex -> onRemoveSet(index, setIndex) },
+                                            onRename = { newName -> onRenameExercise(index, newName) },
+                                            onMoveUp = if (index > 0) {
+                                                { onMoveExercise(index, index - 1) }
+                                            } else null,
+                                            onMoveDown = if (index < targetExercises.size - 1) {
+                                                { onMoveExercise(index, index + 1) }
+                                            } else null,
+                                            accentColor = accentColor,
+                                            onDeleteClick = {
+                                                exerciseIndexToDelete = index
+                                                showDeleteExerciseDialog = true
+                                            }
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -1042,6 +1159,96 @@ fun WorkoutAppScreen(
                 }
             }
         )
+    }
+}
+
+@Composable
+fun SetTypeLegend() {
+    val cardGradient = remember {
+        Brush.verticalGradient(
+            colors = listOf(
+                Color(0xFF1E1E1E),
+                Color(0xFF161616)
+            )
+        )
+    }
+
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color.Transparent
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                brush = cardGradient,
+                shape = RoundedCornerShape(16.dp)
+            )
+            .border(
+                width = 1.dp,
+                color = Color.Gray.copy(alpha = 0.2f),
+                shape = RoundedCornerShape(16.dp)
+            )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            LegendItem(
+                type = SetType.WARMUP,
+                text = "Light warmup set (optional): ~50% of working weight"
+            )
+            LegendItem(
+                type = SetType.PRIMER,
+                text = "post-activation / heavy warmup set (optional): ~80%+ of working weight, 1–3 reps"
+            )
+            LegendItem(
+                type = SetType.WORKING,
+                text = "Working set: Full intensity, close to failure (0-2 RIR)"
+            )
+        }
+    }
+}
+
+@Composable
+fun LegendItem(type: SetType, text: String) {
+    val parts = text.split(": ", limit = 2)
+    Row(verticalAlignment = Alignment.Top) {
+        Box(
+            modifier = Modifier
+                .size(24.dp)
+                .padding(top = 2.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            SetTypeShape(type)
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Column {
+            if (parts.size == 2) {
+                Text(
+                    text = parts[0] + ":",
+                    color = Color.White.copy(alpha = 0.9f),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = parts[1],
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                    style = LocalTextStyle.current.copy(
+                        textIndent = androidx.compose.ui.text.style.TextIndent(firstLine = 0.sp, restLine = 12.sp)
+                    )
+                )
+            } else {
+                Text(
+                    text = text,
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
+                )
+            }
+        }
     }
 }
 
@@ -1357,6 +1564,15 @@ fun ExerciseBox(
         }
     }
 
+    val cardGradient = remember {
+        Brush.verticalGradient(
+            colors = listOf(
+                Color(0xFF1E1E1E),
+                Color(0xFF161616)
+            )
+        )
+    }
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -1370,12 +1586,7 @@ fun ExerciseBox(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFF1E1E1E),
-                            Color(0xFF161616)
-                        )
-                    ),
+                    brush = cardGradient,
                     shape = RoundedCornerShape(16.dp)
                 )
                 .border(
