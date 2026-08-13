@@ -478,6 +478,8 @@ fun WorkoutAppScreen(
     var showDeleteSessionDialog by remember { mutableStateOf(false) }
     var sessionToDelete by remember { mutableStateOf("") }
 
+    val expandedStates = remember { mutableStateMapOf<String, Boolean>() }
+
     val cardGradient = remember {
         Brush.verticalGradient(
             colors = listOf(
@@ -544,7 +546,7 @@ fun WorkoutAppScreen(
                                 shape = RoundedCornerShape(12.dp),
                                 containerColor = Color.Transparent,
                                 modifier = Modifier
-                                    .width(85.dp)
+                                    .width(135.dp)
                                     .background(
                                         brush = Brush.verticalGradient(
                                             colors = listOf(
@@ -560,6 +562,20 @@ fun WorkoutAppScreen(
                                     text = { Text("Settings", color = Color.White, fontSize = 16.sp) },
                                     onClick = {
                                         onScreenChange("settings")
+                                        onMenuToggle(false)
+                                    },
+                                    modifier = Modifier.height(42.dp).padding(horizontal = 4.dp)
+                                )
+                                val allExpanded = exercises.isNotEmpty() && exercises.indices.all {
+                                    expandedStates[exercises[it].name + it] ?: false
+                                }
+                                DropdownMenuItem(
+                                    text = { Text(if (allExpanded) "Collapse All" else "Expand All", color = Color.White, fontSize = 16.sp) },
+                                    onClick = {
+                                        val target = !allExpanded
+                                        exercises.forEachIndexed { index, exercise ->
+                                            expandedStates[exercise.name + index] = target
+                                        }
                                         onMenuToggle(false)
                                     },
                                     modifier = Modifier.height(42.dp).padding(horizontal = 4.dp)
@@ -885,6 +901,7 @@ fun WorkoutAppScreen(
                                         ) + fadeIn(animationSpec = tween(durationMillis = 400)),
                                         exit = fadeOut(animationSpec = tween(durationMillis = 100))
                                     ) {
+                                        val itemKey = exercise.name + index
                                         ExerciseBox(
                                             name = exercise.name,
                                             sets = exercise.sets,
@@ -915,6 +932,11 @@ fun WorkoutAppScreen(
                                             onDeleteClick = {
                                                 exerciseIndexToDelete = index
                                                 showDeleteExerciseDialog = true
+                                            },
+                                            isExpanded = expandedStates[itemKey] ?: false,
+                                            onToggleExpand = {
+                                                val current = expandedStates[itemKey] ?: false
+                                                expandedStates[itemKey] = !current
                                             }
                                         )
                                     }
@@ -1556,7 +1578,9 @@ fun ExerciseBox(
     onMoveUp: (() -> Unit)? = null,
     onMoveDown: (() -> Unit)? = null,
     accentColor: Color,
-    onDeleteClick: () -> Unit
+    onDeleteClick: () -> Unit,
+    isExpanded: Boolean,
+    onToggleExpand: () -> Unit
 ) {
     var addSetMenuExpanded by remember { mutableStateOf(false) }
     var isEditingName by remember { mutableStateOf(false) }
@@ -1670,7 +1694,10 @@ fun ExerciseBox(
                                         isEditingName = true
                                     }
                                 } else {
-                                    Modifier
+                                    Modifier.clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) { onToggleExpand() }
                                 }
                             )
                             if (isEditMode) {
@@ -1701,140 +1728,161 @@ fun ExerciseBox(
                                         )
                                     }
                                 }
+                            } else {
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(
+                                    imageVector = if (isExpanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                                    contentDescription = if (isExpanded) "Collapse" else "Expand",
+                                    tint = accentColor,
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null
+                                        ) { onToggleExpand() }
+                                )
                             }
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                AnimatedVisibility(
+                    visible = isExpanded || isEditMode,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    Column {
+                        Spacer(modifier = Modifier.height(12.dp))
 
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    sets.forEachIndexed { index, set ->
-                        Column {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(modifier = Modifier.width(82.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        if (isEditMode) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(20.dp)
-                                                    .clickable(
-                                                        interactionSource = remember { MutableInteractionSource() },
-                                                        indication = null
-                                                    ) { onRemoveSet(index) },
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .width(10.dp)
-                                                        .height(2.dp)
-                                                        .background(Color(0xffbf0000), RoundedCornerShape(1.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            sets.forEachIndexed { index, set ->
+                                Column {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(modifier = Modifier.width(82.dp)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                if (isEditMode) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(20.dp)
+                                                            .clickable(
+                                                                interactionSource = remember { MutableInteractionSource() },
+                                                                indication = null
+                                                            ) { onRemoveSet(index) },
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .width(10.dp)
+                                                                .height(2.dp)
+                                                                .background(Color(0xffbf0000), RoundedCornerShape(1.dp))
+                                                        )
+                                                    }
+                                                    Spacer(modifier = Modifier.width(2.dp))
+                                                }
+                                                SetTypeShape(set.type)
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = "Set ${index + 1}",
+                                                    color = Color.Gray,
+                                                    fontSize = 14.sp
                                                 )
                                             }
-                                            Spacer(modifier = Modifier.width(2.dp))
                                         }
-                                        SetTypeShape(set.type)
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = "Set ${index + 1}",
-                                            color = Color.Gray,
-                                            fontSize = 14.sp
-                                        )
-                                    }
-                                }
-                                
-                                // Weight
-                                SetValueEditor(
-                                    label = "Weight",
-                                    value = set.weight,
-                                    labelWidth = 38.dp,
-                                    onValueChange = { onUpdateSet(index, it, null, null, null) },
-                                    onIncrement = {
-                                        val current = set.weight.toDoubleOrNull() ?: 0.0
-                                        val inc = weightIncrement.toDoubleOrNull() ?: 2.5
-                                        val next = current + inc
-                                        onUpdateSet(index, if (next % 1.0 == 0.0) next.toInt().toString() else next.toString(), null, null, null)
-                                    },
-                                    onDecrement = {
-                                        val current = set.weight.toDoubleOrNull() ?: 0.0
-                                        val inc = weightIncrement.toDoubleOrNull() ?: 2.5
-                                        val next = (current - inc).coerceAtLeast(0.0)
-                                        onUpdateSet(index, if (next % 1.0 == 0.0) next.toInt().toString() else next.toString(), null, null, null)
-                                    },
-                                    modifier = Modifier.weight(1f)
-                                )
 
-                                Spacer(modifier = Modifier.width(30.dp))
-
-                                // Reps
-                                SetValueEditor(
-                                    label = "Reps",
-                                    value = set.reps,
-                                    labelWidth = 24.dp,
-                                    onValueChange = { onUpdateSet(index, null, it, null, null) },
-                                    onIncrement = {
-                                        val current = set.reps.toIntOrNull() ?: 0
-                                        onUpdateSet(index, null, (current + 1).toString(), null, null)
-                                    },
-                                    onDecrement = {
-                                        val current = set.reps.toIntOrNull() ?: 0
-                                        onUpdateSet(index, null, (current - 1).coerceAtLeast(0).toString(), null, null)
-                                    },
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-
-                            if (showRir || showRpe) {
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Spacer(modifier = Modifier.width(82.dp))
-                                    if (showRir) {
+                                        // Weight
                                         SetValueEditor(
-                                            label = "RIR",
-                                            value = set.rir,
+                                            label = "Weight",
+                                            value = set.weight,
                                             labelWidth = 38.dp,
-                                            onValueChange = { onUpdateSet(index, null, null, it, null) },
+                                            onValueChange = { onUpdateSet(index, it, null, null, null) },
                                             onIncrement = {
-                                                val current = set.rir.toIntOrNull() ?: 0
-                                                onUpdateSet(index, null, null, (current + 1).toString(), null)
+                                                val current = set.weight.toDoubleOrNull() ?: 0.0
+                                                val inc = weightIncrement.toDoubleOrNull() ?: 2.5
+                                                val next = current + inc
+                                                onUpdateSet(index, if (next % 1.0 == 0.0) next.toInt().toString() else next.toString(), null, null, null)
                                             },
                                             onDecrement = {
-                                                val current = set.rir.toIntOrNull() ?: 0
-                                                onUpdateSet(index, null, null, (current - 1).coerceAtLeast(0).toString(), null)
+                                                val current = set.weight.toDoubleOrNull() ?: 0.0
+                                                val inc = weightIncrement.toDoubleOrNull() ?: 2.5
+                                                val next = (current - inc).coerceAtLeast(0.0)
+                                                onUpdateSet(index, if (next % 1.0 == 0.0) next.toInt().toString() else next.toString(), null, null, null)
                                             },
                                             modifier = Modifier.weight(1f)
                                         )
-                                    } else {
-                                        Spacer(modifier = Modifier.weight(1f))
+
+                                        Spacer(modifier = Modifier.width(30.dp))
+
+                                        // Reps
+                                        SetValueEditor(
+                                            label = "Reps",
+                                            value = set.reps,
+                                            labelWidth = 24.dp,
+                                            onValueChange = { onUpdateSet(index, null, it, null, null) },
+                                            onIncrement = {
+                                                val current = set.reps.toIntOrNull() ?: 0
+                                                onUpdateSet(index, null, (current + 1).toString(), null, null)
+                                            },
+                                            onDecrement = {
+                                                val current = set.reps.toIntOrNull() ?: 0
+                                                onUpdateSet(index, null, (current - 1).coerceAtLeast(0).toString(), null, null)
+                                            },
+                                            modifier = Modifier.weight(1f)
+                                        )
                                     }
 
-                                    Spacer(modifier = Modifier.width(30.dp))
+                                    if (showRpe || showRir) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Spacer(modifier = Modifier.width(82.dp))
+                                            if (showRir) {
+                                                SetValueEditor(
+                                                    label = "RIR",
+                                                    value = set.rir,
+                                                    labelWidth = 38.dp,
+                                                    onValueChange = { onUpdateSet(index, null, null, it, null) },
+                                                    onIncrement = {
+                                                        val current = set.rir.toIntOrNull() ?: 0
+                                                        onUpdateSet(index, null, null, (current + 1).toString(), null)
+                                                    },
+                                                    onDecrement = {
+                                                        val current = set.rir.toIntOrNull() ?: 0
+                                                        onUpdateSet(index, null, null, (current - 1).coerceAtLeast(0).toString(), null)
+                                                    },
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                            } else {
+                                                Spacer(modifier = Modifier.weight(1f))
+                                            }
 
-                                    if (showRpe) {
-                                        SetValueEditor(
-                                            label = "RPE",
-                                            value = set.rpe,
-                                            labelWidth = 24.dp,
-                                            onValueChange = { onUpdateSet(index, null, null, null, it) },
-                                            onIncrement = {
-                                                val current = set.rpe.toDoubleOrNull() ?: 0.0
-                                                val next = (current + 0.5).coerceAtMost(10.0)
-                                                onUpdateSet(index, null, null, null, if (next % 1.0 == 0.0) next.toInt().toString() else next.toString())
-                                            },
-                                            onDecrement = {
-                                                val current = set.rpe.toDoubleOrNull() ?: 0.0
-                                                val next = (current - 0.5).coerceAtLeast(0.0)
-                                                onUpdateSet(index, null, null, null, if (next % 1.0 == 0.0) next.toInt().toString() else next.toString())
-                                            },
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                    } else {
-                                        Spacer(modifier = Modifier.weight(1f))
+                                            Spacer(modifier = Modifier.width(30.dp))
+
+                                            if (showRpe) {
+                                                SetValueEditor(
+                                                    label = "RPE",
+                                                    value = set.rpe,
+                                                    labelWidth = 24.dp,
+                                                    onValueChange = { onUpdateSet(index, null, null, null, it) },
+                                                    onIncrement = {
+                                                        val current = set.rpe.toDoubleOrNull() ?: 0.0
+                                                        val next = (current + 0.5).coerceAtMost(10.0)
+                                                        onUpdateSet(index, null, null, null, if (next % 1.0 == 0.0) next.toInt().toString() else next.toString())
+                                                    },
+                                                    onDecrement = {
+                                                        val current = set.rpe.toDoubleOrNull() ?: 0.0
+                                                        val next = (current - 0.5).coerceAtLeast(0.0)
+                                                        onUpdateSet(index, null, null, null, if (next % 1.0 == 0.0) next.toInt().toString() else next.toString())
+                                                    },
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                            } else {
+                                                Spacer(modifier = Modifier.weight(1f))
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -1868,7 +1916,7 @@ fun ExerciseBox(
                             .background(Color(0xffbf0000), RoundedCornerShape(2.dp))
                     )
                 }
-            } else {
+            } else if (isExpanded) {
                 Text(
                     text = "+ Add set",
                     color = accentColor.copy(alpha = 0.9f),
