@@ -37,6 +37,7 @@ import com.navyadeep.ospot.R
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Remove
@@ -85,7 +86,7 @@ data class WorkoutSet(
 )
 
 @Serializable
-data class Exercise(val name: String, val sets: List<WorkoutSet> = emptyList())
+data class Exercise(val name: String, val note: String = "", val sets: List<WorkoutSet> = emptyList())
 
 @Serializable
 data class WorkoutBackup(
@@ -406,6 +407,15 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     },
+                    onUpdateNote = { exerciseIndex, newNote ->
+                        if (selectedSession.isNotEmpty()) {
+                            val list = sessionExercises[selectedSession]
+                            if (list != null && exerciseIndex in list.indices) {
+                                list[exerciseIndex] = list[exerciseIndex].copy(note = newNote)
+                                saveExercises()
+                            }
+                        }
+                    },
                     onMoveExercise = { from, to ->
                         if (selectedSession.isNotEmpty()) {
                             val list = sessionExercises[selectedSession]
@@ -464,6 +474,7 @@ fun WorkoutAppScreen(
     onRemoveSet: (Int, Int) -> Unit,
     onRemoveSession: (String) -> Unit,
     onRenameExercise: (Int, String) -> Unit,
+    onUpdateNote: (Int, String) -> Unit,
     onMoveExercise: (Int, Int) -> Unit,
     isEditMode: Boolean,
     onEditModeChange: (Boolean) -> Unit,
@@ -902,8 +913,10 @@ fun WorkoutAppScreen(
                                         exit = fadeOut(animationSpec = tween(durationMillis = 100))
                                     ) {
                                         val itemKey = exercise.name + index
+                                        val noteKey = itemKey + "_note"
                                         ExerciseBox(
                                             name = exercise.name,
+                                            note = exercise.note,
                                             sets = exercise.sets,
                                             isEditMode = isEditMode,
                                             showRpe = showRpe,
@@ -922,6 +935,7 @@ fun WorkoutAppScreen(
                                             },
                                             onRemoveSet = { setIndex -> onRemoveSet(index, setIndex) },
                                             onRename = { newName -> onRenameExercise(index, newName) },
+                                            onUpdateNote = { newNote -> onUpdateNote(index, newNote) },
                                             onMoveUp = if (index > 0) {
                                                 { onMoveExercise(index, index - 1) }
                                             } else null,
@@ -937,6 +951,11 @@ fun WorkoutAppScreen(
                                             onToggleExpand = {
                                                 val current = expandedStates[itemKey] ?: false
                                                 expandedStates[itemKey] = !current
+                                            },
+                                            isNoteExpanded = expandedStates[noteKey] ?: false,
+                                            onToggleNoteExpand = {
+                                                val current = expandedStates[noteKey] ?: false
+                                                expandedStates[noteKey] = !current
                                             }
                                         )
                                     }
@@ -1566,6 +1585,7 @@ fun SettingsScreen(
 @Composable
 fun ExerciseBox(
     name: String,
+    note: String,
     sets: List<WorkoutSet>,
     isEditMode: Boolean,
     showRpe: Boolean,
@@ -1575,18 +1595,28 @@ fun ExerciseBox(
     onUpdateSet: (Int, String?, String?, String?, String?) -> Unit,
     onRemoveSet: (Int) -> Unit,
     onRename: (String) -> Unit,
+    onUpdateNote: (String) -> Unit,
     onMoveUp: (() -> Unit)? = null,
     onMoveDown: (() -> Unit)? = null,
     accentColor: Color,
     onDeleteClick: () -> Unit,
     isExpanded: Boolean,
-    onToggleExpand: () -> Unit
+    onToggleExpand: () -> Unit,
+    isNoteExpanded: Boolean,
+    onToggleNoteExpand: () -> Unit
 ) {
     var addSetMenuExpanded by remember { mutableStateOf(false) }
     var isEditingName by remember { mutableStateOf(false) }
     var editNameValue by remember { mutableStateOf(TextFieldValue(name)) }
+
+    var isEditingNote by remember { mutableStateOf(false) }
+    var editNoteValue by remember { mutableStateOf(TextFieldValue(note)) }
+
     var hasGainedFocus by remember { mutableStateOf(false) }
+    var hasNoteGainedFocus by remember { mutableStateOf(false) }
+
     val focusRequester = remember { FocusRequester() }
+    val noteFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
 
     LaunchedEffect(isEditingName) {
@@ -1595,6 +1625,15 @@ fun ExerciseBox(
             keyboardController?.show()
         } else {
             hasGainedFocus = false
+        }
+    }
+
+    LaunchedEffect(isEditingNote) {
+        if (isEditingNote) {
+            noteFocusRequester.requestFocus()
+            keyboardController?.show()
+        } else {
+            hasNoteGainedFocus = false
         }
     }
 
@@ -1641,43 +1680,58 @@ fun ExerciseBox(
                         .padding(end = 40.dp), // Maintain space for top-right button
                     contentAlignment = Alignment.CenterStart
                 ) {
-                    if (isEditMode && isEditingName) {
-                        androidx.compose.foundation.text.BasicTextField(
-                            value = editNameValue,
-                            onValueChange = { editNameValue = it },
-                            textStyle = LocalTextStyle.current.copy(
-                                color = Color.White,
-                                fontSize = 16.sp,
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .focusRequester(focusRequester)
-                                .onFocusChanged { focusState ->
-                                    if (focusState.isFocused) hasGainedFocus = true
-                                    if (!focusState.isFocused && hasGainedFocus && isEditingName) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (!isEditMode) {
+                            Icon(
+                                imageVector = if (isExpanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                                contentDescription = if (isExpanded) "Collapse" else "Expand",
+                                tint = accentColor,
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) { onToggleExpand() }
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+
+                        if (isEditMode && isEditingName) {
+                            androidx.compose.foundation.text.BasicTextField(
+                                value = editNameValue,
+                                onValueChange = { editNameValue = it },
+                                textStyle = LocalTextStyle.current.copy(
+                                    color = Color.White,
+                                    fontSize = 16.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .focusRequester(focusRequester)
+                                    .onFocusChanged { focusState ->
+                                        if (focusState.isFocused) hasGainedFocus = true
+                                        if (!focusState.isFocused && hasGainedFocus && isEditingName) {
+                                            if (editNameValue.text.isNotBlank()) {
+                                                onRename(editNameValue.text)
+                                            }
+                                            isEditingName = false
+                                        }
+                                    },
+                                singleLine = true,
+                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                    imeAction = androidx.compose.ui.text.input.ImeAction.Done
+                                ),
+                                keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                                    onDone = {
                                         if (editNameValue.text.isNotBlank()) {
                                             onRename(editNameValue.text)
                                         }
                                         isEditingName = false
                                     }
-                                },
-                            singleLine = true,
-                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                                imeAction = androidx.compose.ui.text.input.ImeAction.Done
-                            ),
-                            keyboardActions = androidx.compose.foundation.text.KeyboardActions(
-                                onDone = {
-                                    if (editNameValue.text.isNotBlank()) {
-                                        onRename(editNameValue.text)
-                                    }
-                                    isEditingName = false
-                                }
-                            ),
-                            cursorBrush = androidx.compose.ui.graphics.SolidColor(Color.White)
-                        )
-                    } else {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                ),
+                                cursorBrush = androidx.compose.ui.graphics.SolidColor(Color.White)
+                            )
+                        } else {
                             Text(
                                 text = name,
                                 style = LocalTextStyle.current.copy(
@@ -1700,6 +1754,7 @@ fun ExerciseBox(
                                     ) { onToggleExpand() }
                                 }
                             )
+
                             if (isEditMode) {
                                 Spacer(modifier = Modifier.width(8.dp))
                                 if (onMoveUp != null) {
@@ -1729,20 +1784,73 @@ fun ExerciseBox(
                                     }
                                 }
                             } else {
-                                Spacer(modifier = Modifier.width(4.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
                                 Icon(
-                                    imageVector = if (isExpanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
-                                    contentDescription = if (isExpanded) "Collapse" else "Expand",
-                                    tint = accentColor,
+                                    imageVector = Icons.AutoMirrored.Filled.Notes,
+                                    contentDescription = "Note",
+                                    tint = if (note.isNotEmpty()) accentColor else Color.Gray.copy(alpha = 0.5f),
                                     modifier = Modifier
-                                        .size(20.dp)
+                                        .size(18.dp)
                                         .clickable(
                                             interactionSource = remember { MutableInteractionSource() },
                                             indication = null
-                                        ) { onToggleExpand() }
+                                        ) { onToggleNoteExpand() }
                                 )
                             }
                         }
+                    }
+                }
+
+                AnimatedVisibility(
+                    visible = isNoteExpanded && !isEditMode,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    Column(modifier = Modifier.padding(top = 8.dp, end = 16.dp)) {
+                        if (isEditingNote) {
+                            androidx.compose.foundation.text.BasicTextField(
+                                value = editNoteValue,
+                                onValueChange = { editNoteValue = it },
+                                textStyle = androidx.compose.ui.text.TextStyle(
+                                    color = Color.White.copy(alpha = 0.9f),
+                                    fontSize = 13.sp
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(noteFocusRequester)
+                                    .onFocusChanged { focusState ->
+                                        if (focusState.isFocused) hasNoteGainedFocus = true
+                                        if (!focusState.isFocused && hasNoteGainedFocus && isEditingNote) {
+                                            onUpdateNote(editNoteValue.text)
+                                            isEditingNote = false
+                                        }
+                                    },
+                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                    imeAction = androidx.compose.ui.text.input.ImeAction.Done
+                                ),
+                                keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                                    onDone = {
+                                        onUpdateNote(editNoteValue.text)
+                                        isEditingNote = false
+                                    }
+                                ),
+                                cursorBrush = androidx.compose.ui.graphics.SolidColor(Color.White)
+                            )
+                        } else {
+                            Text(
+                                text = if (note.isEmpty()) "Add a note..." else note,
+                                color = if (note.isEmpty()) Color.Gray.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.8f),
+                                fontSize = 13.sp,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        editNoteValue = TextFieldValue(note, TextRange(note.length))
+                                        isEditingNote = true
+                                    }
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        HorizontalDivider(color = Color.Gray.copy(alpha = 0.1f))
                     }
                 }
 
