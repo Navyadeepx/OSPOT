@@ -18,9 +18,12 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
@@ -43,15 +46,22 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.Icon
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextRange
@@ -70,6 +80,7 @@ import kotlinx.serialization.Serializable
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.sqrt
 
 val Context.dataStore by preferencesDataStore(name = "ospot_settings")
 
@@ -89,13 +100,21 @@ data class WorkoutSet(
 data class Exercise(val name: String, val note: String = "", val sets: List<WorkoutSet> = emptyList())
 
 @Serializable
+data class DayProgress(
+    val weight: Double,
+    val reps: Int
+)
+
+@Serializable
 data class WorkoutBackup(
     val sessions: List<String>,
     val sessionExercises: Map<String, List<Exercise>>,
     val showRpe: Boolean,
     val showRir: Boolean,
     val weightIncrement: String,
-    val accentColor: Long = 0xFFFFFFFFL
+    val accentColor: Long = 0xFFFFFFFFL,
+    val progressData: Map<String, Map<String, DayProgress>> = emptyMap(),
+    val lastProcessDate: String = ""
 )
 
 class MainActivity : ComponentActivity() {
@@ -106,6 +125,8 @@ class MainActivity : ComponentActivity() {
     private val ACCENT_COLOR_KEY = longPreferencesKey("accent_color")
     private val SESSIONS_KEY = stringPreferencesKey("workout_sessions")
     private val EXERCISES_KEY = stringPreferencesKey("session_exercises")
+    private val PROGRESS_DATA_KEY = stringPreferencesKey("progress_data")
+    private val LAST_PROCESS_DATE_KEY = stringPreferencesKey("last_process_date")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -152,7 +173,9 @@ class MainActivity : ComponentActivity() {
                                 showRpe = prefs[SHOW_RPE_KEY] ?: false,
                                 showRir = prefs[SHOW_RIR_KEY] ?: false,
                                 weightIncrement = prefs[INCREMENT_KEY] ?: "2.5",
-                                accentColor = prefs[ACCENT_COLOR_KEY] ?: 0xFFFFFFFFL
+                                accentColor = prefs[ACCENT_COLOR_KEY] ?: 0xFFFFFFFFL,
+                                progressData = Json.decodeFromString(prefs[PROGRESS_DATA_KEY] ?: "{}"),
+                                lastProcessDate = prefs[LAST_PROCESS_DATE_KEY] ?: ""
                             )
                             
                             val backupJson = Json.encodeToString(backup)
@@ -206,6 +229,8 @@ class MainActivity : ComponentActivity() {
                                     prefs[SHOW_RIR_KEY] = backup.showRir
                                     prefs[INCREMENT_KEY] = backup.weightIncrement
                                     prefs[ACCENT_COLOR_KEY] = backup.accentColor
+                                    prefs[PROGRESS_DATA_KEY] = Json.encodeToString(backup.progressData)
+                                    prefs[LAST_PROCESS_DATE_KEY] = backup.lastProcessDate
                                 }
 
                                 // Update local state
@@ -267,6 +292,81 @@ class MainActivity : ComponentActivity() {
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
+                }
+
+                // Auto-save logic for progress chart
+                val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                val today = dateFormat.format(Date())
+                val lastProcessDate = prefs[LAST_PROCESS_DATE_KEY] ?: ""
+
+                if (lastProcessDate.isNotEmpty() && lastProcessDate != today) {
+                    val progressJson = prefs[PROGRESS_DATA_KEY] ?: "{}"
+                    val progressMap = try {
+                        Json.decodeFromString<MutableMap<String, MutableMap<String, DayProgress>>>(progressJson)
+                    } catch (e: Exception) {
+                        mutableMapOf()
+                    }
+
+                    val exercisesMap = if (savedExercisesJson.isNotEmpty()) {
+                        try {
+                            Json.decodeFromString<Map<String, List<Exercise>>>(savedExercisesJson)
+                        } catch (e: Exception) {
+                            emptyMap()
+                        }
+                    } else emptyMap()
+
+                    // Calculate maxes for yesterday (or lastProcessDate)
+                    val yesterdayMaxes = mutableMapOf<String, DayProgress>()
+                    exercisesMap.values.flatten().forEach { exercise ->
+                        var maxWeight = 0.0
+                        var maxReps = 0
+                        exercise.sets.forEach { set ->
+                            val w = set.weight.toDoubleOrNull() ?: 0.0
+                            val r = set.reps.toIntOrNull() ?: 0
+                            if (w > maxWeight) {
+                                maxWeight = w
+                                maxReps = r
+                            } else if (w == maxWeight && r > maxReps) {
+                                maxReps = r
+                            }
+                        }
+                        if (maxWeight > 0 || maxReps > 0) {
+                            val existing = yesterdayMaxes[exercise.name]
+                            if (existing == null || maxWeight > existing.weight || (maxWeight == existing.weight && maxReps > existing.reps)) {
+                                yesterdayMaxes[exercise.name] = DayProgress(maxWeight, maxReps)
+                            }
+                        }
+                    }
+
+                    // Fill missing days from lastProcessDate to yesterday
+                    val calendar = java.util.Calendar.getInstance()
+                    try {
+                        val lastDate = dateFormat.parse(lastProcessDate)
+                        val todayDate = dateFormat.parse(today)
+                        if (lastDate != null && todayDate != null) {
+                            calendar.time = lastDate
+                            calendar.add(java.util.Calendar.DAY_OF_YEAR, 1)
+                            
+                            while (calendar.time.before(todayDate)) {
+                                val dateStr = dateFormat.format(calendar.time)
+                                yesterdayMaxes.forEach { (exerciseName, progress) ->
+                                    val exerciseData = progressMap.getOrPut(exerciseName) { mutableMapOf() }
+                                    exerciseData[dateStr] = progress
+                                }
+                                calendar.add(java.util.Calendar.DAY_OF_YEAR, 1)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+
+                    dataStore.edit {
+                        it[PROGRESS_DATA_KEY] = Json.encodeToString(progressMap)
+                        it[LAST_PROCESS_DATE_KEY] = today
+                    }
+                } else if (lastProcessDate.isEmpty()) {
+                    // First time initialization
+                    dataStore.edit { it[LAST_PROCESS_DATE_KEY] = today }
                 }
             }
 
@@ -600,6 +700,14 @@ fun WorkoutAppScreen(
                                     modifier = Modifier.height(42.dp).padding(horizontal = 4.dp)
                                 )
                                 DropdownMenuItem(
+                                    text = { Text("Progress Chart", color = Color.White, fontSize = 16.sp) },
+                                    onClick = {
+                                        onScreenChange("progress_chart")
+                                        onMenuToggle(false)
+                                    },
+                                    modifier = Modifier.height(42.dp).padding(horizontal = 4.dp)
+                                )
+                                DropdownMenuItem(
                                     text = { Text("v${BuildConfig.VERSION_NAME}", color = Color.Gray, fontSize = 12.sp) },
                                     onClick = { },
                                     modifier = Modifier.height(32.dp).padding(horizontal = 4.dp),
@@ -613,11 +721,11 @@ fun WorkoutAppScreen(
                     ),
                     actions = {
                         Row(modifier = Modifier.fillMaxHeight(), verticalAlignment = Alignment.CenterVertically) {
-                            if (currentScreen == "settings") {
+                            if (currentScreen == "settings" || currentScreen == "progress_chart") {
                                 IconButton(onClick = { onScreenChange("workout_log") }) {
                                     Icon(
                                         imageVector = Icons.Filled.Close,
-                                        contentDescription = "Exit Settings",
+                                        contentDescription = "Exit",
                                         tint = Color.White
                                     )
                                 }
@@ -984,6 +1092,19 @@ fun WorkoutAppScreen(
                         onBackClick = { onScreenChange("workout_log") },
                         onExportData = onExportData,
                         onImportData = onImportData
+                    )
+                }
+            }
+
+            if (currentScreen == "progress_chart") {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                ) {
+                    ProgressChartScreen(
+                        innerPadding = innerPadding,
+                        accentColor = accentColor,
+                        onBackClick = { onScreenChange("workout_log") }
                     )
                 }
             }
@@ -2293,5 +2414,656 @@ fun SetTypeShape(type: SetType) {
                 )
             }
         }
+    }
+}
+
+@Composable
+fun ProgressChartScreen(
+    innerPadding: PaddingValues,
+    accentColor: Color,
+    onBackClick: () -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    val PROGRESS_DATA_KEY = stringPreferencesKey("progress_data")
+    val SESSIONS_KEY = stringPreferencesKey("workout_sessions")
+    val EXERCISES_KEY = stringPreferencesKey("session_exercises")
+    
+    val progressData = remember { mutableStateMapOf<String, Map<String, DayProgress>>() }
+    val sessionExercisesMap = remember { mutableStateMapOf<String, List<Exercise>>() }
+    val sessionsList = remember { mutableStateListOf<String>() }
+    val selectedExercises = remember { mutableStateListOf<String>() }
+    val expandedSessions = remember { mutableStateMapOf<String, Boolean>() }
+
+    LaunchedEffect(Unit) {
+        val prefs = context.dataStore.data.first()
+        
+        val progressJson = prefs[PROGRESS_DATA_KEY] ?: "{}"
+        try {
+            val decoded = Json.decodeFromString<Map<String, Map<String, DayProgress>>>(progressJson)
+            progressData.putAll(decoded)
+        } catch (e: Exception) { e.printStackTrace() }
+
+        val sessionsJson = prefs[SESSIONS_KEY] ?: "[]"
+        try {
+            val decoded = Json.decodeFromString<List<String>>(sessionsJson)
+            sessionsList.addAll(decoded)
+        } catch (e: Exception) { e.printStackTrace() }
+
+        val exercisesJson = prefs[EXERCISES_KEY] ?: "{}"
+        try {
+            val decoded = Json.decodeFromString<Map<String, List<Exercise>>>(exercisesJson)
+            sessionExercisesMap.putAll(decoded)
+        } catch (e: Exception) { e.printStackTrace() }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(innerPadding)
+            .verticalScroll(rememberScrollState())
+    ) {
+        BackHandler(enabled = true) {
+            onBackClick()
+        }
+
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = Color(0xFF161616)
+            ),
+            modifier = Modifier
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .fillMaxWidth()
+                .border(
+                    width = 1.dp,
+                    color = Color.Gray.copy(alpha = 0.25f),
+                    shape = RoundedCornerShape(20.dp)
+                )
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Text(
+                    text = "Progress Chart",
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+
+                if (progressData.isEmpty()) {
+                    Text(
+                        text = "No progress data logged yet. Data is saved daily when you open the app.",
+                        color = Color.Gray,
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(vertical = 24.dp)
+                    )
+                } else {
+                    val allExerciseNames = remember(progressData) { progressData.keys.sorted() }
+                    
+                    // Advanced Color Mapping Logic
+                    val chartColors = remember(accentColor, progressData, selectedExercises) {
+                        val colors = mutableMapOf<String, Color>()
+                        if (progressData.isEmpty()) return@remember colors
+
+                        val exerciseList = progressData.keys.toList()
+                        val n = exerciseList.size
+                        val allDates = progressData.values.flatMap { it.keys }.distinct().sorted()
+                        
+                        // 1. Pairwise Distance Metric
+                        val distances = Array(n) { DoubleArray(n) }
+                        for (i in 0 until n) {
+                            for (j in i + 1 until n) {
+                                val ex1 = progressData[exerciseList[i]]!!
+                                val ex2 = progressData[exerciseList[j]]!!
+                                
+                                var sumSqDiff = 0.0
+                                var count = 0
+                                allDates.forEach { date ->
+                                    val w1 = ex1[date]?.weight
+                                    val w2 = ex2[date]?.weight
+                                    if (w1 != null && w2 != null) {
+                                        sumSqDiff += (w1 - w2) * (w1 - w2)
+                                        count++
+                                    }
+                                }
+                                val dist = if (count > 0) sqrt(sumSqDiff) / count else 1000.0
+                                distances[i][j] = dist
+                                distances[j][i] = dist
+                            }
+                        }
+
+                        // 2. Maximal-Dissimilarity Seriation
+                        val sequence = mutableListOf<Int>()
+                        val remaining = (0 until n).toMutableSet()
+                        
+                        if (n > 0) {
+                            sequence.add(0)
+                            remaining.remove(0)
+                            
+                            while (remaining.isNotEmpty()) {
+                                val last = sequence.last()
+                                val next = remaining.maxByOrNull { r ->
+                                    distances[r][last] + (sequence.sumOf { distances[r][it] } / sequence.size)
+                                } ?: remaining.first()
+                                
+                                sequence.add(next)
+                                remaining.remove(next)
+                            }
+                        }
+
+                        // 3. Equidistant Color Wheel Mapping
+                        sequence.forEachIndexed { seqIndex, exerciseIdx ->
+                            val hue = (seqIndex.toFloat() / n.coerceAtLeast(1)) * 360f
+                            val lightness = if (seqIndex % 2 == 0) 0.6f else 0.4f
+                            colors[exerciseList[exerciseIdx]] = Color.hsl(hue, 0.8f, lightness)
+                        }
+
+                        if (n > 0) {
+                            colors[exerciseList[sequence[0]]] = accentColor
+                        }
+                        
+                        colors
+                    }
+
+                    // Legend - Fixed height with internal scroll and visible scrollbar
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(80.dp)
+                            .padding(bottom = 8.dp)
+                            .background(Color.Black.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
+                            .border(1.dp, Color.Gray.copy(alpha = 0.05f), RoundedCornerShape(8.dp))
+                            .padding(8.dp)
+                            .nestedScroll(remember {
+                                object : NestedScrollConnection {
+                                    override fun onPostScroll(
+                                        consumed: Offset,
+                                        available: Offset,
+                                        source: NestedScrollSource
+                                    ): Offset {
+                                        return available
+                                    }
+                                }
+                            })
+                    ) {
+                        if (selectedExercises.isNotEmpty()) {
+                            val scrollState = rememberScrollState()
+                            Column(modifier = Modifier.verticalScroll(scrollState).padding(end = 8.dp)) {
+                                FlowRow(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    selectedExercises.forEach { name ->
+                                        val color = chartColors[name] ?: Color.Gray
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(10.dp)
+                                                    .background(color, RoundedCornerShape(2.dp))
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(text = name, color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp)
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (scrollState.maxValue > 0) {
+                                Canvas(
+                                    modifier = Modifier
+                                        .align(Alignment.CenterEnd)
+                                        .fillMaxHeight()
+                                        .width(4.dp)
+                                ) {
+                                    val scrollPercentage = scrollState.value.toFloat() / scrollState.maxValue
+                                    val barHeight = size.height * (size.height / (size.height + scrollState.maxValue))
+                                    val topOffset = (size.height - barHeight) * scrollPercentage
+                                    
+                                    drawRoundRect(
+                                        color = Color.Gray.copy(alpha = 0.4f),
+                                        topLeft = Offset(0f, topOffset),
+                                        size = androidx.compose.ui.geometry.Size(size.width, barHeight),
+                                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx())
+                                    )
+                                }
+                            }
+                        } else {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text("No exercises selected", color = Color.Gray, fontSize = 11.sp)
+                            }
+                        }
+                    }
+
+                    // Chart Area
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(280.dp)
+                            .background(Color(0xFF1E1E1E), RoundedCornerShape(12.dp))
+                            .border(1.dp, Color.Gray.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
+                            .padding(16.dp)
+                    ) {
+                        if (selectedExercises.isEmpty()) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text("Select exercises to display progress", color = Color.Gray, fontSize = 12.sp)
+                            }
+                        } else {
+                            ProgressLineChart(
+                                progressData = progressData.filterKeys { it in selectedExercises },
+                                chartColorMap = chartColors
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Select Exercises",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color.White
+                        )
+                        
+                        val allSelected = selectedExercises.size == progressData.size
+                        TextButton(
+                            onClick = {
+                                if (allSelected) {
+                                    selectedExercises.clear()
+                                } else {
+                                    selectedExercises.clear()
+                                    selectedExercises.addAll(allExerciseNames)
+                                }
+                            }
+                        ) {
+                            Text(
+                                text = if (allSelected) "Deselect All" else "Select All",
+                                color = accentColor,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+
+                    // Checklist grouped by session
+                    sessionsList.forEach { sessionName ->
+                        val exercisesInSession = sessionExercisesMap[sessionName] ?: emptyList()
+                        val validExercises = exercisesInSession.map { it.name }.filter { it in progressData }
+                        
+                        if (validExercises.isNotEmpty()) {
+                            val isExpanded = expandedSessions[sessionName] ?: false
+                            val allInSessionSelected = validExercises.all { selectedExercises.contains(it) }
+                            val someInSessionSelected = validExercises.any { selectedExercises.contains(it) }
+
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                // Session Header
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { expandedSessions[sessionName] = !isExpanded }
+                                        .padding(vertical = 0.dp), // Reduced from 4.dp
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                        contentDescription = null,
+                                        tint = Color.Gray,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Checkbox(
+                                        checked = allInSessionSelected,
+                                        onCheckedChange = { checked ->
+                                            validExercises.forEach { ex ->
+                                                if (checked) {
+                                                    if (!selectedExercises.contains(ex)) selectedExercises.add(ex)
+                                                } else {
+                                                    selectedExercises.remove(ex)
+                                                }
+                                            }
+                                        },
+                                        colors = CheckboxDefaults.colors(
+                                            checkedColor = accentColor,
+                                            uncheckedColor = Color.Gray,
+                                            checkmarkColor = if (accentColor == Color.White) Color.Black else Color.White
+                                        ),
+                                        modifier = Modifier.scale(0.85f)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = sessionName,
+                                        color = Color.White,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+
+                                // Exercises List (Collapsible)
+                                AnimatedVisibility(
+                                    visible = isExpanded,
+                                    enter = expandVertically() + fadeIn(),
+                                    exit = shrinkVertically() + fadeOut()
+                                ) {
+                                    Column(modifier = Modifier.padding(start = 32.dp)) {
+                                        validExercises.forEach { exerciseName ->
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable {
+                                                        if (selectedExercises.contains(exerciseName)) {
+                                                            selectedExercises.remove(exerciseName)
+                                                        } else {
+                                                            selectedExercises.add(exerciseName)
+                                                        }
+                                                    }
+                                                    .padding(vertical = 0.dp), // Reduced from 2.dp
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Checkbox(
+                                                    checked = selectedExercises.contains(exerciseName),
+                                                    onCheckedChange = { checked ->
+                                                        if (checked) selectedExercises.add(exerciseName)
+                                                        else selectedExercises.remove(exerciseName)
+                                                    },
+                                                    colors = CheckboxDefaults.colors(
+                                                        checkedColor = accentColor,
+                                                        uncheckedColor = Color.Gray,
+                                                        checkmarkColor = if (accentColor == Color.White) Color.Black else Color.White
+                                                    ),
+                                                    modifier = Modifier.scale(0.85f)
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(text = exerciseName, color = Color.White.copy(alpha = 0.9f), fontSize = 14.sp)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Handle exercises that might not be in any current session but have progress data
+                    val exercisesInSessions = sessionExercisesMap.values.flatten().map { it.name }.toSet()
+                    val orphanedExercises = allExerciseNames.filter { it !in exercisesInSessions }
+                    
+                    if (orphanedExercises.isNotEmpty()) {
+                        val sessionName = "Other"
+                        val isExpanded = expandedSessions[sessionName] ?: false
+                        val allInSessionSelected = orphanedExercises.all { selectedExercises.contains(it) }
+
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { expandedSessions[sessionName] = !isExpanded }
+                                    .padding(vertical = 0.dp), // Reduced from 4.dp
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                    contentDescription = null,
+                                    tint = Color.Gray,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Checkbox(
+                                    checked = allInSessionSelected,
+                                    onCheckedChange = { checked ->
+                                        orphanedExercises.forEach { ex ->
+                                            if (checked) {
+                                                if (!selectedExercises.contains(ex)) selectedExercises.add(ex)
+                                            } else {
+                                                selectedExercises.remove(ex)
+                                            }
+                                        }
+                                    },
+                                    colors = CheckboxDefaults.colors(
+                                        checkedColor = accentColor,
+                                        uncheckedColor = Color.Gray,
+                                        checkmarkColor = if (accentColor == Color.White) Color.Black else Color.White
+                                    ),
+                                    modifier = Modifier.scale(0.85f)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = sessionName,
+                                    color = Color.White,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+
+                            AnimatedVisibility(
+                                visible = isExpanded,
+                                enter = expandVertically() + fadeIn(),
+                                exit = shrinkVertically() + fadeOut()
+                            ) {
+                                Column(modifier = Modifier.padding(start = 32.dp)) {
+                                    orphanedExercises.forEach { exerciseName ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    if (selectedExercises.contains(exerciseName)) {
+                                                        selectedExercises.remove(exerciseName)
+                                                    } else {
+                                                        selectedExercises.add(exerciseName)
+                                                    }
+                                                }
+                                                .padding(vertical = 0.dp), // Reduced from 2.dp
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Checkbox(
+                                                checked = selectedExercises.contains(exerciseName),
+                                                onCheckedChange = { checked ->
+                                                    if (checked) selectedExercises.add(exerciseName)
+                                                    else selectedExercises.remove(exerciseName)
+                                                },
+                                                colors = CheckboxDefaults.colors(
+                                                    checkedColor = accentColor,
+                                                    uncheckedColor = Color.Gray,
+                                                    checkmarkColor = if (accentColor == Color.White) Color.Black else Color.White
+                                                ),
+                                                modifier = Modifier.scale(0.85f)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(text = exerciseName, color = Color.White.copy(alpha = 0.9f), fontSize = 14.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ProgressLineChart(
+    progressData: Map<String, Map<String, DayProgress>>,
+    chartColorMap: Map<String, Color>
+) {
+    val allDates = progressData.values.flatMap { it.keys }.distinct().sorted()
+    if (allDates.isEmpty()) return
+
+    // Transform State
+    var scaleX by remember { mutableFloatStateOf(1f) }
+    var scaleY by remember { mutableFloatStateOf(1f) }
+    var offsetX by remember { mutableFloatStateOf(0f) }
+    var offsetY by remember { mutableFloatStateOf(0f) }
+
+    val state = rememberTransformableState { zoomChange, panChange, _ ->
+        scaleX = (scaleX * zoomChange).coerceIn(1f, 10f)
+        scaleY = (scaleY * zoomChange).coerceIn(1f, 10f)
+        offsetX += panChange.x
+        offsetY += panChange.y
+    }
+
+    Canvas(
+        modifier = Modifier
+            .fillMaxSize()
+            .transformable(state = state)
+            .nestedScroll(remember {
+                object : NestedScrollConnection {
+                    override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                        // When interacting with graph, prevent parent scrolling
+                        return Offset(0f, available.y)
+                    }
+                }
+            })
+    ) {
+        val width = size.width
+        val height = size.height
+        val paddingLeft = 60f
+        val paddingRight = 20f
+        val paddingTop = 20f
+        val paddingBottom = 60f
+
+        val minWeightRaw = progressData.values.flatMap { it.values }.minOfOrNull { it.weight } ?: 0.0
+        val maxWeightRaw = progressData.values.flatMap { it.values }.maxOfOrNull { it.weight } ?: 100.0
+        
+        val minWeight = minWeightRaw
+        val maxWeight = maxWeightRaw
+        val weightRange = (maxWeight - minWeight).coerceAtLeast(1.0)
+
+        val chartWidth = width - paddingLeft - paddingRight
+        val chartHeight = height - paddingTop - paddingBottom
+
+        // Apply Zoom and Pan to the coordinate system
+        val totalXWidth = chartWidth * scaleX
+        val totalYHeight = chartHeight * scaleY
+        
+        // Boundaries for offset to keep chart in view
+        offsetX = offsetX.coerceIn(-(totalXWidth - chartWidth), 0f)
+        offsetY = offsetY.coerceIn(0f, totalYHeight - chartHeight)
+
+        val xStep = if (allDates.size > 1) totalXWidth / (allDates.size - 1) else totalXWidth
+        
+        val labelPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.GRAY
+            textSize = 24f
+            textAlign = android.graphics.Paint.Align.RIGHT
+        }
+        
+        val gridSteps = (10 * scaleY).toInt().coerceIn(5, 50)
+        // Use a cleaner increment based on range and zoom
+        val weightPerStep = if (scaleY > 2f) {
+            // Finer increments when zoomed in
+            val ideal = weightRange / gridSteps
+            if (ideal < 0.5) 0.5 else if (ideal < 1.0) 1.0 else if (ideal < 2.5) 2.5 else 5.0
+        } else {
+            // Clean step for non-zoomed view (e.g., nearest 5, 10, or 20)
+            val step = weightRange / 10.0
+            if (step < 2.5) 2.5 else if (step < 5.0) 5.0 else if (step < 10.0) 10.0 else 20.0
+        }
+        
+        // Calculate visible weight range for labels
+        for (i in -50..(gridSteps + 100)) { // Extended range for panning
+            val weightValRaw = minWeight + (i * weightPerStep)
+            // Round to nearest weightPerStep to ensure logical values
+            val weightVal = (Math.round(weightValRaw / weightPerStep) * weightPerStep)
+            
+            // Ensure we only draw labels that make sense for the current viewport
+            val y = paddingTop + chartHeight - (((weightVal - minWeight) / weightRange * chartHeight) * scaleY).toFloat() + offsetY
+            
+            if (y in paddingTop..(height - paddingBottom + 30f)) {
+                drawLine(
+                    color = Color.Gray.copy(alpha = 0.15f),
+                    start = Offset(paddingLeft, y),
+                    end = Offset(width - paddingRight, y),
+                    strokeWidth = 1f
+                )
+                
+                drawContext.canvas.nativeCanvas.drawText(
+                    String.format(Locale.getDefault(), "%.1f", weightVal),
+                    paddingLeft - 10f,
+                    y + 8f,
+                    labelPaint
+                )
+            }
+        }
+
+        // X-axis labels (Dates)
+        val xLabelPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.GRAY
+            textSize = 20f
+            textAlign = android.graphics.Paint.Align.CENTER
+        }
+        
+        allDates.forEachIndexed { index, dateStr ->
+            val x = paddingLeft + index * xStep + offsetX
+            
+            if (x in (paddingLeft - 50f)..(width - paddingRight + 50f)) {
+                // Format date
+                val displayDate = try {
+                    val parts = dateStr.split("-")
+                    if (parts.size >= 3) "${parts[1]}/${parts[2]}" else dateStr
+                } catch (e: Exception) { dateStr }
+                
+                // Show label only if there is enough space or it's a major step
+                if (scaleX > 2f || index % ((5 / scaleX).toInt().coerceAtLeast(1)) == 0 || index == allDates.size - 1) {
+                    drawContext.canvas.nativeCanvas.drawText(
+                        displayDate,
+                        x,
+                        height - 10f,
+                        xLabelPaint
+                    )
+                }
+                
+                // Vertical grid line
+                drawLine(
+                    color = Color.Gray.copy(alpha = 0.1f),
+                    start = Offset(x, paddingTop),
+                    end = Offset(x, height - paddingBottom),
+                    strokeWidth = 1f
+                )
+            }
+        }
+        
+        // Clip for plots (lines and circles) - keep them within the chart area
+        drawContext.canvas.save()
+        drawContext.canvas.nativeCanvas.clipRect(
+            paddingLeft, paddingTop, width - paddingRight, height - paddingBottom
+        )
+
+        progressData.entries.forEach { entry ->
+            val exerciseName = entry.key
+            val exerciseData = entry.value
+            val color = chartColorMap[exerciseName] ?: Color.Gray
+            val path = Path()
+            
+            var firstPoint = true
+            allDates.forEachIndexed { dateIndex, dateStr ->
+                val progress = exerciseData[dateStr]
+                if (progress != null) {
+                    val x = paddingLeft + dateIndex * xStep + offsetX
+                    val y = paddingTop + chartHeight - (((progress.weight - minWeight) / weightRange * chartHeight) * scaleY).toFloat() + offsetY
+                    
+                    if (firstPoint) {
+                        path.moveTo(x, y)
+                        firstPoint = false
+                    } else {
+                        path.lineTo(x, y)
+                    }
+                    
+                    // Always draw circles (clipping will handle overflow)
+                    drawCircle(color = color, radius = 6f, center = Offset(x, y))
+                }
+            }
+            
+            drawPath(
+                path = path,
+                color = color,
+                style = Stroke(width = 4f, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round)
+            )
+        }
+
+        drawContext.canvas.restore()
     }
 }
