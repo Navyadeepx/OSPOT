@@ -29,6 +29,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -315,8 +316,8 @@ class MainActivity : ComponentActivity() {
                         }
                     } else emptyMap()
 
-                    // Calculate maxes for yesterday (or lastProcessDate)
-                    val yesterdayMaxes = mutableMapOf<String, DayProgress>()
+                    // Calculate current maxes
+                    val currentMaxes = mutableMapOf<String, DayProgress>()
                     exercisesMap.values.flatten().forEach { exercise ->
                         var maxWeight = 0.0
                         var maxReps = 0
@@ -331,25 +332,25 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                         if (maxWeight > 0 || maxReps > 0) {
-                            val existing = yesterdayMaxes[exercise.name]
+                            val existing = currentMaxes[exercise.name]
                             if (existing == null || maxWeight > existing.weight || (maxWeight == existing.weight && maxReps > existing.reps)) {
-                                yesterdayMaxes[exercise.name] = DayProgress(maxWeight, maxReps)
+                                currentMaxes[exercise.name] = DayProgress(maxWeight, maxReps)
                             }
                         }
                     }
 
-                    // Fill missing days from lastProcessDate to yesterday
+                    // Fill days from lastProcessDate to yesterday (inclusive)
                     val calendar = java.util.Calendar.getInstance()
                     try {
                         val lastDate = dateFormat.parse(lastProcessDate)
                         val todayDate = dateFormat.parse(today)
                         if (lastDate != null && todayDate != null) {
                             calendar.time = lastDate
-                            calendar.add(java.util.Calendar.DAY_OF_YEAR, 1)
-                            
+                            // We start from lastProcessDate and fill up to yesterday
+                            // If user skipped days, those days will get the currentMaxes
                             while (calendar.time.before(todayDate)) {
                                 val dateStr = dateFormat.format(calendar.time)
-                                yesterdayMaxes.forEach { (exerciseName, progress) ->
+                                currentMaxes.forEach { (exerciseName, progress) ->
                                     val exerciseData = progressMap.getOrPut(exerciseName) { mutableMapOf() }
                                     exerciseData[dateStr] = progress
                                 }
@@ -534,7 +535,64 @@ class MainActivity : ComponentActivity() {
                         val dateStr = SimpleDateFormat("dd-MMM-yyyy", Locale.getDefault()).format(Date()).lowercase(Locale.getDefault())
                         exportLauncher.launch("OSPOT_EXPORT_$dateStr.json")
                     },
-                    onImportData = { importLauncher.launch(arrayOf("application/json")) }
+                    onImportData = { importLauncher.launch(arrayOf("application/json")) },
+                    onClearProgressData = {
+                        scope.launch {
+                            dataStore.edit { it[PROGRESS_DATA_KEY] = "{}" }
+                        }
+                    },
+                    onSetLastProcessDate = { date ->
+                        scope.launch {
+                            dataStore.edit { it[LAST_PROCESS_DATE_KEY] = date }
+                        }
+                    },
+                    onManualSaveProgress = { date ->
+                        scope.launch {
+                            val prefs = dataStore.data.first()
+                            val progressJson = prefs[PROGRESS_DATA_KEY] ?: "{}"
+                            val progressMap = try {
+                                Json.decodeFromString<MutableMap<String, MutableMap<String, DayProgress>>>(progressJson)
+                            } catch (e: Exception) {
+                                mutableMapOf()
+                            }
+
+                            val exercisesJson = prefs[EXERCISES_KEY] ?: "{}"
+                            val exercisesMap = try {
+                                Json.decodeFromString<Map<String, List<Exercise>>>(exercisesJson)
+                            } catch (e: Exception) {
+                                emptyMap()
+                            }
+
+                            val maxes = mutableMapOf<String, DayProgress>()
+                            exercisesMap.values.flatten().forEach { exercise ->
+                                var maxWeight = 0.0
+                                var maxReps = 0
+                                exercise.sets.forEach { set ->
+                                    val w = set.weight.toDoubleOrNull() ?: 0.0
+                                    val r = set.reps.toIntOrNull() ?: 0
+                                    if (w > maxWeight) {
+                                        maxWeight = w
+                                        maxReps = r
+                                    } else if (w == maxWeight && r > maxReps) {
+                                        maxReps = r
+                                    }
+                                }
+                                if (maxWeight > 0 || maxReps > 0) {
+                                    val existing = maxes[exercise.name]
+                                    if (existing == null || maxWeight > existing.weight || (maxWeight == existing.weight && maxReps > existing.reps)) {
+                                        maxes[exercise.name] = DayProgress(maxWeight, maxReps)
+                                    }
+                                }
+                            }
+
+                            maxes.forEach { (exerciseName, progress) ->
+                                val exerciseData = progressMap.getOrPut(exerciseName) { mutableMapOf() }
+                                exerciseData[date] = progress
+                            }
+
+                            dataStore.edit { it[PROGRESS_DATA_KEY] = Json.encodeToString(progressMap) }
+                        }
+                    }
                 )
             }
         }
@@ -581,8 +639,12 @@ fun WorkoutAppScreen(
     accentColor: Color,
     onAccentColorChange: (Color) -> Unit,
     onExportData: () -> Unit,
-    onImportData: () -> Unit
+    onImportData: () -> Unit,
+    onClearProgressData: () -> Unit = {},
+    onSetLastProcessDate: (String) -> Unit = {},
+    onManualSaveProgress: (String) -> Unit = {}
 ) {
+    val scope = rememberCoroutineScope()
     var showDeleteExerciseDialog by remember { mutableStateOf(false) }
     var exerciseIndexToDelete by remember { mutableIntStateOf(-1) }
 
@@ -708,6 +770,14 @@ fun WorkoutAppScreen(
                                     modifier = Modifier.height(42.dp).padding(horizontal = 4.dp)
                                 )
                                 DropdownMenuItem(
+                                    text = { Text("Debug", color = Color.White, fontSize = 16.sp) },
+                                    onClick = {
+                                        onScreenChange("debug")
+                                        onMenuToggle(false)
+                                    },
+                                    modifier = Modifier.height(42.dp).padding(horizontal = 4.dp)
+                                )
+                                DropdownMenuItem(
                                     text = { Text("v${BuildConfig.VERSION_NAME}", color = Color.Gray, fontSize = 12.sp) },
                                     onClick = { },
                                     modifier = Modifier.height(32.dp).padding(horizontal = 4.dp),
@@ -721,12 +791,15 @@ fun WorkoutAppScreen(
                     ),
                     actions = {
                         Row(modifier = Modifier.fillMaxHeight(), verticalAlignment = Alignment.CenterVertically) {
-                            if (currentScreen == "settings" || currentScreen == "progress_chart") {
-                                IconButton(onClick = { onScreenChange("workout_log") }) {
+                            if (currentScreen == "settings" || currentScreen == "progress_chart" || currentScreen == "debug") {
+                                IconButton(
+                                    onClick = { onScreenChange("workout_log") },
+                                    modifier = Modifier.offset(x = 8.dp)
+                                ) {
                                     Icon(
                                         imageVector = Icons.Filled.Close,
                                         contentDescription = "Exit",
-                                        tint = Color.White
+                                        tint = accentColor
                                     )
                                 }
                             } else {
@@ -1108,6 +1181,22 @@ fun WorkoutAppScreen(
                     )
                 }
             }
+
+            if (currentScreen == "debug") {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                ) {
+                    DebugScreen(
+                        innerPadding = innerPadding,
+                        accentColor = accentColor,
+                        onBackClick = { onScreenChange("workout_log") },
+                        onClearProgressData = onClearProgressData,
+                        onSetLastProcessDate = onSetLastProcessDate,
+                        onManualSaveProgress = onManualSaveProgress
+                    )
+                }
+            }
         }
     }
 
@@ -1441,6 +1530,15 @@ fun SettingsScreen(
 ){
     var incrementMenuExpanded by remember { mutableStateOf(false) }
 
+    val cardGradient = remember {
+        Brush.verticalGradient(
+            colors = listOf(
+                Color(0xFF1E1E1E),
+                Color(0xFF161616)
+            )
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1454,11 +1552,15 @@ fun SettingsScreen(
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(
-                containerColor = Color(0xFF161616)
+                containerColor = Color.Transparent
             ),
             modifier = Modifier
                 .padding(horizontal = 16.dp, vertical = 8.dp)
                 .fillMaxWidth()
+                .background(
+                    brush = cardGradient,
+                    shape = RoundedCornerShape(20.dp)
+                )
                 .border(
                     width = 1.dp,
                     color = Color.Gray.copy(alpha = 0.25f),
@@ -2435,6 +2537,15 @@ fun ProgressChartScreen(
     val selectedExercises = remember { mutableStateListOf<String>() }
     val expandedSessions = remember { mutableStateMapOf<String, Boolean>() }
 
+    val cardGradient = remember {
+        Brush.verticalGradient(
+            colors = listOf(
+                Color(0xFF1E1E1E),
+                Color(0xFF161616)
+            )
+        )
+    }
+
     LaunchedEffect(Unit) {
         val prefs = context.dataStore.data.first()
         
@@ -2470,11 +2581,15 @@ fun ProgressChartScreen(
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(
-                containerColor = Color(0xFF161616)
+                containerColor = Color.Transparent
             ),
             modifier = Modifier
                 .padding(horizontal = 16.dp, vertical = 8.dp)
                 .fillMaxWidth()
+                .background(
+                    brush = cardGradient,
+                    shape = RoundedCornerShape(20.dp)
+                )
                 .border(
                     width = 1.dp,
                     color = Color.Gray.copy(alpha = 0.25f),
@@ -2880,6 +2995,76 @@ fun ProgressChartScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun DebugScreen(
+    innerPadding: PaddingValues,
+    accentColor: Color,
+    onBackClick: () -> Unit,
+    onClearProgressData: () -> Unit,
+    onSetLastProcessDate: (String) -> Unit,
+    onManualSaveProgress: (String) -> Unit
+) {
+    var dateInput by remember { mutableStateOf(SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(innerPadding)
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text("Debug Controls", fontSize = 24.sp, color = Color.White, fontWeight = FontWeight.Bold)
+
+        OutlinedTextField(
+            value = dateInput,
+            onValueChange = { dateInput = it },
+            label = { Text("Target Date (yyyy-MM-dd)", color = Color.Gray) },
+            textStyle = androidx.compose.ui.text.TextStyle(color = Color.White),
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = accentColor,
+                unfocusedBorderColor = Color.Gray
+            )
+        )
+
+        Button(
+            onClick = { onManualSaveProgress(dateInput) },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = accentColor)
+        ) {
+            Text("Save Current Data for Date", color = Color.Black)
+        }
+
+        Button(
+            onClick = { onSetLastProcessDate(dateInput) },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)
+        ) {
+            Text("Set Last Process Date to Input", color = Color.White)
+        }
+
+        Button(
+            onClick = onClearProgressData,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB00020))
+        ) {
+            Text("Clear All Progress Data", color = Color.White)
+        }
+
+        Spacer(modifier = Modifier.weight(1f))
+
+        Button(
+            onClick = onBackClick,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+            border = BorderStroke(1.dp, Color.Gray)
+        ) {
+            Text("Back", color = Color.White)
         }
     }
 }
