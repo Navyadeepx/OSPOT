@@ -12,12 +12,14 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.horizontalScroll
@@ -63,6 +65,8 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextRange
@@ -2536,6 +2540,14 @@ fun ProgressChartScreen(
     val sessionsList = remember { mutableStateListOf<String>() }
     val selectedExercises = remember { mutableStateListOf<String>() }
     val expandedSessions = remember { mutableStateMapOf<String, Boolean>() }
+    
+    // Legend Interaction State
+    var highlightedExercise by remember { mutableStateOf<String?>(null) }
+    val highlightAlpha by animateFloatAsState(
+        targetValue = if (highlightedExercise == null) 1f else 0.2f,
+        animationSpec = tween(durationMillis = 300),
+        label = "HighlightAlpha"
+    )
 
     val cardGradient = remember {
         Brush.verticalGradient(
@@ -2711,7 +2723,20 @@ fun ProgressChartScreen(
                                 ) {
                                     selectedExercises.forEach { name ->
                                         val color = chartColors[name] ?: Color.Gray
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Row(
+                                            modifier = Modifier
+                                                .pointerInput(name) {
+                                                    awaitPointerEventScope {
+                                                        while (true) {
+                                                            val down = awaitFirstDown()
+                                                            highlightedExercise = name
+                                                            waitForUpOrCancellation()
+                                                            highlightedExercise = null
+                                                        }
+                                                    }
+                                                },
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
                                             Box(
                                                 modifier = Modifier
                                                     .size(10.dp)
@@ -2766,7 +2791,9 @@ fun ProgressChartScreen(
                         } else {
                             ProgressLineChart(
                                 progressData = progressData.filterKeys { it in selectedExercises },
-                                chartColorMap = chartColors
+                                chartColorMap = chartColors,
+                                highlightedExercise = highlightedExercise,
+                                otherAlpha = highlightAlpha
                             )
                         }
                     }
@@ -2811,8 +2838,9 @@ fun ProgressChartScreen(
                         
                         if (validExercises.isNotEmpty()) {
                             val isExpanded = expandedSessions[sessionName] ?: false
-                            val allInSessionSelected = validExercises.all { selectedExercises.contains(it) }
-                            val someInSessionSelected = validExercises.any { selectedExercises.contains(it) }
+                            val selectedCountInSession = validExercises.count { selectedExercises.contains(it) }
+                            val allInSessionSelected = selectedCountInSession == validExercises.size
+                            val someInSessionSelected = selectedCountInSession > 0
 
                             Column(modifier = Modifier.fillMaxWidth()) {
                                 // Session Header
@@ -2854,6 +2882,12 @@ fun ProgressChartScreen(
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.Bold,
                                         modifier = Modifier.weight(1f)
+                                    )
+                                    Text(
+                                        text = "$selectedCountInSession/${validExercises.size}",
+                                        color = Color.Gray,
+                                        fontSize = 12.sp,
+                                        modifier = Modifier.padding(end = 8.dp)
                                     )
                                 }
 
@@ -2908,7 +2942,8 @@ fun ProgressChartScreen(
                     if (orphanedExercises.isNotEmpty()) {
                         val sessionName = "Other"
                         val isExpanded = expandedSessions[sessionName] ?: false
-                        val allInSessionSelected = orphanedExercises.all { selectedExercises.contains(it) }
+                        val selectedCountInSession = orphanedExercises.count { selectedExercises.contains(it) }
+                        val allInSessionSelected = selectedCountInSession == orphanedExercises.size
 
                         Column(modifier = Modifier.fillMaxWidth()) {
                             Row(
@@ -2949,6 +2984,12 @@ fun ProgressChartScreen(
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Bold,
                                     modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    text = "$selectedCountInSession/${orphanedExercises.size}",
+                                    color = Color.Gray,
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.padding(end = 8.dp)
                                 )
                             }
 
@@ -3072,7 +3113,9 @@ fun DebugScreen(
 @Composable
 fun ProgressLineChart(
     progressData: Map<String, Map<String, DayProgress>>,
-    chartColorMap: Map<String, Color>
+    chartColorMap: Map<String, Color>,
+    highlightedExercise: String? = null,
+    otherAlpha: Float = 1f
 ) {
     val allDates = progressData.values.flatMap { it.keys }.distinct().sorted()
     if (allDates.isEmpty()) return
@@ -3149,6 +3192,26 @@ fun ProgressLineChart(
         }
         
         // Calculate visible weight range for labels
+        val drawnLabels = mutableSetOf<String>()
+        
+        // Draw Min and Max labels first to ensure they are always present
+        val minMaxWeights = listOf(minWeight, maxWeight)
+        minMaxWeights.forEach { weightVal ->
+            val y = paddingTop + chartHeight - (((weightVal - minWeight) / weightRange * chartHeight) * scaleY).toFloat() + offsetY
+            if (y in paddingTop..(height - paddingBottom + 30f)) {
+                val labelText = String.format(Locale.getDefault(), "%.1f", weightVal)
+                if (!drawnLabels.contains(labelText)) {
+                    drawContext.canvas.nativeCanvas.drawText(
+                        labelText,
+                        paddingLeft - 10f,
+                        y + 8f,
+                        labelPaint
+                    )
+                    drawnLabels.add(labelText)
+                }
+            }
+        }
+
         for (i in -50..(gridSteps + 100)) { // Extended range for panning
             val weightValRaw = minWeight + (i * weightPerStep)
             // Round to nearest weightPerStep to ensure logical values
@@ -3165,12 +3228,22 @@ fun ProgressLineChart(
                     strokeWidth = 1f
                 )
                 
-                drawContext.canvas.nativeCanvas.drawText(
-                    String.format(Locale.getDefault(), "%.1f", weightVal),
-                    paddingLeft - 10f,
-                    y + 8f,
-                    labelPaint
-                )
+                val labelText = String.format(Locale.getDefault(), "%.1f", weightVal)
+                // Avoid overlapping labels by checking proximity
+                val isCloseToAny = drawnLabels.any { existing ->
+                    val existingVal = existing.toDoubleOrNull() ?: -1.0
+                    Math.abs(existingVal - weightVal) < (weightPerStep * 0.5)
+                }
+
+                if (!isCloseToAny) {
+                    drawContext.canvas.nativeCanvas.drawText(
+                        labelText,
+                        paddingLeft - 10f,
+                        y + 8f,
+                        labelPaint
+                    )
+                    drawnLabels.add(labelText)
+                }
             }
         }
 
@@ -3192,7 +3265,19 @@ fun ProgressLineChart(
                 } catch (e: Exception) { dateStr }
                 
                 // Show label only if there is enough space or it's a major step
-                if (scaleX > 2f || index % ((5 / scaleX).toInt().coerceAtLeast(1)) == 0 || index == allDates.size - 1) {
+                val firstVisibleIdx = ((-offsetX) / xStep).toInt().coerceAtLeast(0)
+                val lastVisibleIdx = ((chartWidth - offsetX) / xStep).toInt().coerceAtMost(allDates.size - 1)
+                val visibleCount = lastVisibleIdx - firstVisibleIdx + 1
+
+                val labelFrequency = when {
+                    visibleCount <= 7 -> 1
+                    scaleX > 4f -> 1
+                    scaleX > 2f -> 2
+                    scaleX > 1.5f -> 3
+                    else -> 5
+                }
+                
+                if (index == 0 || index == allDates.size - 1 || index % labelFrequency == 0) {
                     drawContext.canvas.nativeCanvas.drawText(
                         displayDate,
                         x,
@@ -3220,7 +3305,10 @@ fun ProgressLineChart(
         progressData.entries.forEach { entry ->
             val exerciseName = entry.key
             val exerciseData = entry.value
-            val color = chartColorMap[exerciseName] ?: Color.Gray
+            val baseColor = chartColorMap[exerciseName] ?: Color.Gray
+            val isHighlighted = highlightedExercise == exerciseName
+            val currentAlpha = if (highlightedExercise == null || isHighlighted) 1f else otherAlpha
+            val color = baseColor.copy(alpha = currentAlpha)
             val path = Path()
             
             var firstPoint = true
