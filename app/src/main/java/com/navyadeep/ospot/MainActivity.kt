@@ -1,6 +1,7 @@
 package com.navyadeep.ospot
 
 import android.content.Context
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
@@ -75,6 +76,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
+import io.github.fletchmckee.liquid.liquid
+import io.github.fletchmckee.liquid.rememberLiquidState
+import io.github.fletchmckee.liquid.liquefiable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -123,6 +127,13 @@ data class WorkoutBackup(
 )
 
 class MainActivity : ComponentActivity() {
+
+    override fun attachBaseContext(newBase: Context) {
+        val configuration = Configuration(newBase.resources.configuration)
+        configuration.densityDpi = 600
+        val context = newBase.createConfigurationContext(configuration)
+        super.attachBaseContext(context)
+    }
 
     private val SHOW_RPE_KEY = booleanPreferencesKey("show_rpe")
     private val SHOW_RIR_KEY = booleanPreferencesKey("show_rir")
@@ -649,6 +660,7 @@ fun WorkoutAppScreen(
     onManualSaveProgress: (String) -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
+    val liquidState = rememberLiquidState()
     var showDeleteExerciseDialog by remember { mutableStateOf(false) }
     var exerciseIndexToDelete by remember { mutableIntStateOf(-1) }
 
@@ -684,6 +696,15 @@ fun WorkoutAppScreen(
             }
             Box(
                 modifier = Modifier
+                    .liquid(liquidState){
+                        frost = 1.dp
+                        shape = RoundedCornerShape(
+                            topStart = 0.dp,
+                            topEnd = 0.dp,
+                            bottomStart = 24.dp,
+                            bottomEnd = 24.dp
+                        )
+                    }
                     .fillMaxWidth()
                     .background(topGradient)
             ) {
@@ -852,14 +873,24 @@ fun WorkoutAppScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .liquid(liquidState){
+                            frost = 1.dp
+                            //tint = Color.Black.copy(alpha = 0.15f)
+                            shape = RoundedCornerShape(
+                                topStart = 24.dp,
+                                topEnd = 24.dp,
+                                bottomStart = 0.dp,
+                                bottomEnd = 0.dp
+                            )
+                        }
                         .background(bottomGradient)
+                        .navigationBarsPadding()
                 ) {
                     Surface(
                         color = Color.Transparent,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(55.dp)
-                            .navigationBarsPadding()
                     ) {
                         Row(
                             modifier = Modifier
@@ -885,15 +916,17 @@ fun WorkoutAppScreen(
                                 Box(
                                     modifier = Modifier
                                         .padding(end = 8.dp)
-                                        .background(
-                                            brush = cardGradient,
-                                            shape = RoundedCornerShape(20.dp)
-                                        )
+                                        .liquid(liquidState){
+                                            frost = 1.dp
+                                            edge = 0.05f
+                                            tint = Color.White.copy(alpha = 0.05f)
+                                            shape = RoundedCornerShape(24.dp)
+                                        }/*
                                         .border(
                                             width = borderWidth,
                                             color = borderColor,
                                             shape = RoundedCornerShape(20.dp)
-                                        )
+                                        )*/
                                         // Fix: Removed ripple effect from session button taps
                                         .clickable(
                                             interactionSource = remember { MutableInteractionSource() },
@@ -906,7 +939,8 @@ fun WorkoutAppScreen(
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(
                                             text = session,
-                                            color = if (isSelected) Color.White else Color.Gray,
+                                            //color = if (isSelected) Color.White else Color.Gray,
+                                            color = Color.White,
                                             fontSize = 14.sp,
                                             fontWeight = if (isSelected) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal
                                         )
@@ -940,8 +974,14 @@ fun WorkoutAppScreen(
                             Box(
                                 modifier = Modifier
                                     .size(38.dp)
-                                    .background(brush = cardGradient, shape = RoundedCornerShape(50.dp))
-                                    .border(width = 1.dp, color = Color.Gray.copy(alpha = 0.25f), shape = RoundedCornerShape(50.dp))
+                                    .liquid(liquidState){
+                                        frost = 1.dp
+                                        edge = 0.05f
+                                        tint = Color.White.copy(alpha = 0.05f)
+                                        shape = RoundedCornerShape(24.dp)
+                                    }
+                                    //.background(brush = cardGradient, shape = RoundedCornerShape(50.dp))
+                                    //.border(width = 1.dp, color = Color.Gray.copy(alpha = 0.25f), shape = RoundedCornerShape(50.dp))
                                     // Fix: Removed ripple effect from dialog + button tap
                                     .clickable(
                                         interactionSource = remember { MutableInteractionSource() },
@@ -964,7 +1004,11 @@ fun WorkoutAppScreen(
             }
         }
     ) { innerPadding ->
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .liquefiable(liquidState)
+        ) {
             if (currentScreen == "workout_log") {
                 AnimatedContent(
                     targetState = selectedSession to exercises,
