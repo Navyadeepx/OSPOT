@@ -79,6 +79,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import io.github.fletchmckee.liquid.liquid
 import io.github.fletchmckee.liquid.rememberLiquidState
 import io.github.fletchmckee.liquid.liquefiable
+import io.github.fletchmckee.liquid.LiquidState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -120,6 +121,7 @@ data class WorkoutBackup(
     val sessionExercises: Map<String, List<Exercise>>,
     val showRpe: Boolean,
     val showRir: Boolean,
+    val expandOnStartup: Boolean = false,
     val weightIncrement: String,
     val accentColor: Long = 0xFFFFFFFFL,
     val progressData: Map<String, Map<String, DayProgress>> = emptyMap(),
@@ -143,6 +145,7 @@ class MainActivity : ComponentActivity() {
     private val EXERCISES_KEY = stringPreferencesKey("session_exercises")
     private val PROGRESS_DATA_KEY = stringPreferencesKey("progress_data")
     private val LAST_PROCESS_DATE_KEY = stringPreferencesKey("last_process_date")
+    private val EXPAND_ON_STARTUP_KEY = booleanPreferencesKey("expand_on_startup")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -188,6 +191,7 @@ class MainActivity : ComponentActivity() {
                                 sessionExercises = Json.decodeFromString(exercisesJson),
                                 showRpe = prefs[SHOW_RPE_KEY] ?: false,
                                 showRir = prefs[SHOW_RIR_KEY] ?: false,
+                                expandOnStartup = prefs[EXPAND_ON_STARTUP_KEY] ?: false,
                                 weightIncrement = prefs[INCREMENT_KEY] ?: "2.5",
                                 accentColor = prefs[ACCENT_COLOR_KEY] ?: 0xFFFFFFFFL,
                                 progressData = Json.decodeFromString(prefs[PROGRESS_DATA_KEY] ?: "{}"),
@@ -209,6 +213,7 @@ class MainActivity : ComponentActivity() {
             var currentScreen by remember { mutableStateOf("workout_log") }
             var showRpe by remember { mutableStateOf(initialPrefs[SHOW_RPE_KEY] ?: false) }
             var showRir by remember { mutableStateOf(initialPrefs[SHOW_RIR_KEY] ?: false) }
+            var expandOnStartup by remember { mutableStateOf(initialPrefs[EXPAND_ON_STARTUP_KEY] ?: false) }
             var weightIncrement by remember { mutableStateOf(initialPrefs[INCREMENT_KEY] ?: "2.5") }
             val sessions = remember { mutableStateListOf<String>().apply { addAll(initialSessions) } }
             var selectedSession by remember { mutableStateOf(initialSelectedSession) }
@@ -243,6 +248,7 @@ class MainActivity : ComponentActivity() {
                                     prefs[EXERCISES_KEY] = Json.encodeToString(backup.sessionExercises)
                                     prefs[SHOW_RPE_KEY] = backup.showRpe
                                     prefs[SHOW_RIR_KEY] = backup.showRir
+                                    prefs[EXPAND_ON_STARTUP_KEY] = backup.expandOnStartup
                                     prefs[INCREMENT_KEY] = backup.weightIncrement
                                     prefs[ACCENT_COLOR_KEY] = backup.accentColor
                                     prefs[PROGRESS_DATA_KEY] = Json.encodeToString(backup.progressData)
@@ -258,6 +264,7 @@ class MainActivity : ComponentActivity() {
                                 }
                                 showRpe = backup.showRpe
                                 showRir = backup.showRir
+                                expandOnStartup = backup.expandOnStartup
                                 weightIncrement = backup.weightIncrement
                                 accentColor = Color(backup.accentColor.toInt())
                                 if (sessions.isNotEmpty()) selectedSession = sessions.first()
@@ -276,6 +283,7 @@ class MainActivity : ComponentActivity() {
                 val prefs = dataStore.data.first()
                 showRpe = prefs[SHOW_RPE_KEY] ?: false
                 showRir = prefs[SHOW_RIR_KEY] ?: false
+                expandOnStartup = prefs[EXPAND_ON_STARTUP_KEY] ?: false
                 weightIncrement = prefs[INCREMENT_KEY] ?: "2.5"
                 accentColor = Color((prefs[ACCENT_COLOR_KEY] ?: 0xFFFFFFFFL).toInt())
 
@@ -396,6 +404,11 @@ class MainActivity : ComponentActivity() {
                 scope.launch { dataStore.edit { it[SHOW_RIR_KEY] = value } }
             }
 
+            val saveExpandOnStartup: (Boolean) -> Unit = { value ->
+                expandOnStartup = value
+                scope.launch { dataStore.edit { it[EXPAND_ON_STARTUP_KEY] = value } }
+            }
+
             val saveIncrement: (String) -> Unit = { value ->
                 weightIncrement = value
                 scope.launch { dataStore.edit { it[INCREMENT_KEY] = value } }
@@ -430,6 +443,8 @@ class MainActivity : ComponentActivity() {
                     onRpeChange = saveRpe,
                     showRir = showRir,
                     onRirChange = saveRir,
+                    expandOnStartup = expandOnStartup,
+                    onExpandOnStartupChange = saveExpandOnStartup,
                     weightIncrement = weightIncrement,
                     onIncrementChange = saveIncrement,
                     sessions = sessions,
@@ -623,6 +638,8 @@ fun WorkoutAppScreen(
     onRpeChange: (Boolean) -> Unit,
     showRir: Boolean,
     onRirChange: (Boolean) -> Unit,
+    expandOnStartup: Boolean,
+    onExpandOnStartupChange: (Boolean) -> Unit,
     weightIncrement: String,
     onIncrementChange: (String) -> Unit,
     sessions: androidx.compose.runtime.snapshots.SnapshotStateList<String>,
@@ -697,13 +714,15 @@ fun WorkoutAppScreen(
             Box(
                 modifier = Modifier
                     .liquid(liquidState){
-                        frost = 1.dp
+                        tint = Color.Black.copy(alpha = 0.25f)
+                        frost = 2.dp
                         shape = RoundedCornerShape(
                             topStart = 0.dp,
                             topEnd = 0.dp,
                             bottomStart = 24.dp,
                             bottomEnd = 24.dp
                         )
+                        edge = 0.025f
                     }
                     .fillMaxWidth()
                     .background(topGradient)
@@ -721,14 +740,14 @@ fun WorkoutAppScreen(
                                         onMenuToggle(!menuExpanded)
                                     }
                                     .padding(start = 0.dp)
-                                    .offset(x = (-4).dp)
+                                    .offset(y = (-4).dp)
                                     .padding(vertical = 0.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Image(
                                     painter = painterResource(id = R.drawable.ospot_logo),
                                     contentDescription = "OSPOT",
-                                    modifier = Modifier.height(32.dp)
+                                    modifier = Modifier.height(28.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Icon(
@@ -740,21 +759,18 @@ fun WorkoutAppScreen(
                             DropdownMenu(
                                 expanded = menuExpanded,
                                 onDismissRequest = { onMenuToggle(false) },
-                                offset = DpOffset(x = (-8).dp, y = 0.dp),
-                                shape = RoundedCornerShape(12.dp),
+                                offset = DpOffset(x = 0.dp , y = 8.dp),
                                 containerColor = Color.Transparent,
                                 modifier = Modifier
-                                    .width(135.dp)
-                                    .background(
-                                        brush = Brush.verticalGradient(
-                                            colors = listOf(
-                                                Color(0xFF1E1E1E),
-                                                Color(0xFF161616)
-                                            )
-                                        ),
-                                        shape = RoundedCornerShape(12.dp)
-                                    )
-                                    .border(1.dp, Color.Gray.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
+                                    //.width(135.dp)
+                                    .liquid(liquidState) {
+                                        refraction = 0.20f
+                                        frost = 2.dp
+                                        edge = 0.01f
+                                        tint = Color.Black.copy(alpha = 0.25f)
+                                        shape = RoundedCornerShape(16.dp)
+                                    }
+
                             ) {
                                 DropdownMenuItem(
                                     text = { Text("Settings", color = Color.White, fontSize = 16.sp) },
@@ -762,10 +778,10 @@ fun WorkoutAppScreen(
                                         onScreenChange("settings")
                                         onMenuToggle(false)
                                     },
-                                    modifier = Modifier.height(42.dp).padding(horizontal = 4.dp)
+                                    modifier = Modifier.height(36.dp).padding(horizontal = 4.dp)
                                 )
                                 val allExpanded = exercises.isNotEmpty() && exercises.indices.all {
-                                    expandedStates[exercises[it].name + it] ?: false
+                                    expandedStates[exercises[it].name + it] ?: expandOnStartup
                                 }
                                 DropdownMenuItem(
                                     text = { Text(if (allExpanded) "Collapse All" else "Expand All", color = Color.White, fontSize = 16.sp) },
@@ -776,7 +792,7 @@ fun WorkoutAppScreen(
                                         }
                                         onMenuToggle(false)
                                     },
-                                    modifier = Modifier.height(42.dp).padding(horizontal = 4.dp)
+                                    modifier = Modifier.height(36.dp).padding(horizontal = 4.dp)
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Edit", color = Color.White, fontSize = 16.sp) },
@@ -784,7 +800,7 @@ fun WorkoutAppScreen(
                                         onEditModeChange(true)
                                         onMenuToggle(false)
                                     },
-                                    modifier = Modifier.height(42.dp).padding(horizontal = 4.dp)
+                                    modifier = Modifier.height(36.dp).padding(horizontal = 4.dp)
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Progress Chart", color = Color.White, fontSize = 16.sp) },
@@ -792,7 +808,7 @@ fun WorkoutAppScreen(
                                         onScreenChange("progress_chart")
                                         onMenuToggle(false)
                                     },
-                                    modifier = Modifier.height(42.dp).padding(horizontal = 4.dp)
+                                    modifier = Modifier.height(36.dp).padding(horizontal = 4.dp)
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Debug", color = Color.White, fontSize = 16.sp) },
@@ -800,7 +816,7 @@ fun WorkoutAppScreen(
                                         onScreenChange("debug")
                                         onMenuToggle(false)
                                     },
-                                    modifier = Modifier.height(42.dp).padding(horizontal = 4.dp)
+                                    modifier = Modifier.height(36.dp).padding(horizontal = 4.dp)
                                 )
                                 DropdownMenuItem(
                                     text = { Text("v${BuildConfig.VERSION_NAME}", color = Color.Gray, fontSize = 12.sp) },
@@ -817,14 +833,30 @@ fun WorkoutAppScreen(
                     actions = {
                         Row(modifier = Modifier.fillMaxHeight(), verticalAlignment = Alignment.CenterVertically) {
                             if (currentScreen == "settings" || currentScreen == "progress_chart" || currentScreen == "debug") {
-                                IconButton(
-                                    onClick = { onScreenChange("workout_log") },
-                                    modifier = Modifier.offset(x = 8.dp)
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .offset(x = (-4).dp, y = (-4).dp)
+                                        .liquid(liquidState) {
+                                            curve = 1.0f
+                                            frost = 2.dp
+                                            edge = 0.025f
+                                            tint = Color.White.copy(alpha = 0.075f)
+                                            shape = RoundedCornerShape(24.dp)
+                                        }
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null
+                                        ) {
+                                            onScreenChange("workout_log")
+                                        },
+                                    contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
                                         imageVector = Icons.Filled.Close,
                                         contentDescription = "Exit",
-                                        tint = accentColor
+                                        tint = accentColor,
+                                        modifier = Modifier.size(20.dp)
                                     )
                                 }
                             } else {
@@ -836,21 +868,34 @@ fun WorkoutAppScreen(
                                     )
                                 }
                                 if (selectedSession.isNotEmpty()) {
-                                    IconButton(
-                                        onClick = {
-                                            if (isEditMode) {
-                                                onEditModeChange(false)
-                                            } else {
-                                                onShowExerciseDialogChange(true)
+                                    Box(
+                                        modifier = Modifier
+                                            .size(38.dp)
+                                            .offset(x = (-4).dp, y = (-4).dp)
+                                            .liquid(liquidState) {
+                                                curve = 1.0f
+                                                frost = 2.dp
+                                                edge = 0.025f
+                                                tint = Color.White.copy(alpha = 0.075f)
+                                                shape = RoundedCornerShape(24.dp)
                                             }
-                                        },
-                                        modifier = Modifier.offset(x = 8.dp)
+                                            .clickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null
+                                            ) {
+                                                if (isEditMode) {
+                                                    onEditModeChange(false)
+                                                } else {
+                                                    onShowExerciseDialogChange(true)
+                                                }
+                                            },
+                                        contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
                                             imageVector = if (isEditMode) Icons.Filled.Close else Icons.Filled.Add,
                                             contentDescription = if (isEditMode) "Exit Edit Mode" else "New",
                                             tint = accentColor,
-                                            modifier = Modifier.size(28.dp)
+                                            modifier = Modifier.size(20.dp)
                                         )
                                     }
                                 }
@@ -874,14 +919,16 @@ fun WorkoutAppScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .liquid(liquidState){
-                            frost = 1.dp
-                            //tint = Color.Black.copy(alpha = 0.15f)
+                            frost = 2.dp
+                            tint = Color.Black.copy(alpha = 0.25f)
+                            curve = 0.50f
                             shape = RoundedCornerShape(
                                 topStart = 24.dp,
                                 topEnd = 24.dp,
                                 bottomStart = 0.dp,
                                 bottomEnd = 0.dp
                             )
+                            edge = 0.025f
                         }
                         .background(bottomGradient)
                         .navigationBarsPadding()
@@ -902,31 +949,27 @@ fun WorkoutAppScreen(
                         ) {
                             sessions.forEach { session ->
                                 val isSelected = selectedSession == session
-                                val borderColor by animateColorAsState(
-                                    targetValue = if (isSelected) accentColor.copy(alpha = 0.6f) else Color.Gray.copy(alpha = 0.25f),
+                                val sessionAlpha by animateFloatAsState(
+                                    targetValue = if (isSelected) 0.2f else 0.075f,
                                     animationSpec = tween(durationMillis = 300),
-                                    label = "SessionBorderColor"
+                                    label = "SessionAlpha"
                                 )
-                                val borderWidth by animateDpAsState(
-                                    targetValue = if (isSelected) 1.5.dp else 1.dp,
+                                val sessionTint by animateColorAsState(
+                                    targetValue = if (isSelected) accentColor else Color.White,
                                     animationSpec = tween(durationMillis = 300),
-                                    label = "SessionBorderWidth"
+                                    label = "SessionTint"
                                 )
 
                                 Box(
                                     modifier = Modifier
                                         .padding(end = 8.dp)
-                                        .liquid(liquidState){
-                                            frost = 1.dp
-                                            edge = 0.05f
-                                            tint = Color.White.copy(alpha = 0.05f)
+                                        .liquid(liquidState) {
+                                            frost = 2.dp
+                                            curve = 1.0f
+                                            edge = 0.025f
+                                            tint = sessionTint.copy(alpha = sessionAlpha)
                                             shape = RoundedCornerShape(24.dp)
-                                        }/*
-                                        .border(
-                                            width = borderWidth,
-                                            color = borderColor,
-                                            shape = RoundedCornerShape(20.dp)
-                                        )*/
+                                        }
                                         // Fix: Removed ripple effect from session button taps
                                         .clickable(
                                             interactionSource = remember { MutableInteractionSource() },
@@ -974,10 +1017,11 @@ fun WorkoutAppScreen(
                             Box(
                                 modifier = Modifier
                                     .size(38.dp)
-                                    .liquid(liquidState){
-                                        frost = 1.dp
-                                        edge = 0.05f
-                                        tint = Color.White.copy(alpha = 0.05f)
+                                    .liquid(liquidState) {
+                                        curve = 1.0f
+                                        frost = 2.dp
+                                        edge = 0.025f
+                                        tint = Color.White.copy(alpha = 0.075f)
                                         shape = RoundedCornerShape(24.dp)
                                     }
                                     //.background(brush = cardGradient, shape = RoundedCornerShape(50.dp))
@@ -1172,13 +1216,14 @@ fun WorkoutAppScreen(
                                                 { onMoveExercise(index, index + 1) }
                                             } else null,
                                             accentColor = accentColor,
+                                            liquidState = liquidState,
                                             onDeleteClick = {
                                                 exerciseIndexToDelete = index
                                                 showDeleteExerciseDialog = true
                                             },
-                                            isExpanded = expandedStates[itemKey] ?: false,
+                                            isExpanded = expandedStates[itemKey] ?: expandOnStartup,
                                             onToggleExpand = {
-                                                val current = expandedStates[itemKey] ?: false
+                                                val current = expandedStates[itemKey] ?: expandOnStartup
                                                 expandedStates[itemKey] = !current
                                             },
                                             isNoteExpanded = expandedStates[noteKey] ?: false,
@@ -1206,6 +1251,8 @@ fun WorkoutAppScreen(
                         onRpeChange = onRpeChange,
                         showRir = showRir,
                         onRirChange = onRirChange,
+                        expandOnStartup = expandOnStartup,
+                        onExpandOnStartupChange = onExpandOnStartupChange,
                         increment = weightIncrement,
                         onIncrementChange = onIncrementChange,
                         accentColor = accentColor,
@@ -1568,6 +1615,8 @@ fun SettingsScreen(
     onRpeChange: (Boolean) -> Unit,
     showRir: Boolean,
     onRirChange: (Boolean) -> Unit,
+    expandOnStartup: Boolean,
+    onExpandOnStartupChange: (Boolean) -> Unit,
     increment: String,
     onIncrementChange: (String) -> Unit,
     accentColor: Color,
@@ -1655,6 +1704,24 @@ fun SettingsScreen(
                     Switch(
                         checked = showRpe,
                         onCheckedChange = onRpeChange
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Expand All on Startup",
+                        fontSize = 16.sp,
+                        color = Color.White.copy(alpha = 0.9f)
+                    )
+                    Switch(
+                        checked = expandOnStartup,
+                        onCheckedChange = onExpandOnStartupChange
                     )
                 }
 
@@ -1870,6 +1937,7 @@ fun ExerciseBox(
     onMoveUp: (() -> Unit)? = null,
     onMoveDown: (() -> Unit)? = null,
     accentColor: Color,
+    liquidState: LiquidState,
     onDeleteClick: () -> Unit,
     isExpanded: Boolean,
     onToggleExpand: () -> Unit,
@@ -2314,20 +2382,16 @@ fun ExerciseBox(
                 DropdownMenu(
                     expanded = addSetMenuExpanded,
                     onDismissRequest = { addSetMenuExpanded = false },
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(16.dp),
                     containerColor = Color.Transparent,
                     modifier = Modifier
-                        .width(180.dp)
-                        .background(
-                            brush = Brush.verticalGradient(
-                                colors = listOf(
-                                    Color(0xFF1E1E1E),
-                                    Color(0xFF161616)
-                                )
-                            ),
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                        .border(1.dp, Color.Gray.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
+                        .liquid(liquidState) {
+                            refraction = 0.15f
+                            frost = 2.dp
+                            edge = 0.01f
+                            tint = Color.Black.copy(alpha = 0.025f)
+                            shape = RoundedCornerShape(16.dp)
+                        }
                 ) {
                     DropdownMenuItem(
                         text = {
@@ -2340,7 +2404,8 @@ fun ExerciseBox(
                         onClick = {
                             onAddSet(SetType.WARMUP)
                             addSetMenuExpanded = false
-                        }
+                        },
+                        modifier = Modifier.height(36.dp).padding(horizontal = 4.dp)
                     )
                     DropdownMenuItem(
                         text = {
@@ -2353,7 +2418,8 @@ fun ExerciseBox(
                         onClick = {
                             onAddSet(SetType.PRIMER)
                             addSetMenuExpanded = false
-                        }
+                        },
+                        modifier = Modifier.height(36.dp).padding(horizontal = 4.dp)
                     )
                     DropdownMenuItem(
                         text = {
@@ -2366,7 +2432,8 @@ fun ExerciseBox(
                         onClick = {
                             onAddSet(SetType.WORKING)
                             addSetMenuExpanded = false
-                        }
+                        },
+                        modifier = Modifier.height(36.dp).padding(horizontal = 4.dp)
                     )
                 }
             }
