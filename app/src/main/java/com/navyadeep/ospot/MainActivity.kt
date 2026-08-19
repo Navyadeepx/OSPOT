@@ -62,6 +62,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -76,6 +77,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalOverscrollConfiguration
 import io.github.fletchmckee.liquid.liquid
 import io.github.fletchmckee.liquid.rememberLiquidState
 import io.github.fletchmckee.liquid.liquefiable
@@ -175,6 +178,8 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val scope = rememberCoroutineScope()
+            val barLiquidState = rememberLiquidState()
+            val cardLiquidState = rememberLiquidState()
 
             val exportLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.CreateDocument("application/json")
@@ -435,195 +440,202 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            @OptIn(ExperimentalFoundationApi::class)
             OSPOTTheme {
-                WorkoutAppScreen(
-                    currentScreen = currentScreen,
-                    onScreenChange = { currentScreen = it },
-                    showRpe = showRpe,
-                    onRpeChange = saveRpe,
-                    showRir = showRir,
-                    onRirChange = saveRir,
-                    expandOnStartup = expandOnStartup,
-                    onExpandOnStartupChange = saveExpandOnStartup,
-                    weightIncrement = weightIncrement,
-                    onIncrementChange = saveIncrement,
-                    sessions = sessions,
-                    onSaveSessions = saveSessions,
-                    selectedSession = selectedSession,
-                    onSelectedSessionChange = { selectedSession = it },
-                    menuExpanded = menuExpanded,
-                    onMenuToggle = { menuExpanded = it },
-                    showAddSessionDialog = showAddSessionDialog,
-                    onShowDialogChange = { showAddSessionDialog = it },
-                    newSessionNameText = newSessionNameText,
-                    onDialogTextChange = { newSessionNameText = it },
-                    showAddExerciseDialog = showAddExerciseDialog,
-                    onShowExerciseDialogChange = { showAddExerciseDialog = it },
-                    newExerciseNameText = newExerciseNameText,
-                    onExerciseDialogTextChange = { newExerciseNameText = it },
-                    exercises = sessionExercises[selectedSession] ?: emptyList(),
-                    onAddExercise = { exerciseName ->
-                        if (selectedSession.isNotEmpty()) {
-                            val list = sessionExercises.getOrPut(selectedSession) { mutableStateListOf() }
-                            list.add(Exercise(name = exerciseName))
-                            saveExercises()
-                        }
-                    },
-                    onAddSet = { exerciseIndex, setType ->
-                        if (selectedSession.isNotEmpty()) {
-                            val list = sessionExercises[selectedSession]
-                            if (list != null && exerciseIndex in list.indices) {
-                                val exercise = list[exerciseIndex]
-                                val updatedSets = exercise.sets + WorkoutSet(type = setType)
-                                list[exerciseIndex] = exercise.copy(sets = updatedSets)
+                CompositionLocalProvider(
+                    LocalOverscrollConfiguration provides null
+                ) {
+                    WorkoutAppScreen(
+                        currentScreen = currentScreen,
+                        onScreenChange = { currentScreen = it },
+                        showRpe = showRpe,
+                        onRpeChange = saveRpe,
+                        showRir = showRir,
+                        onRirChange = saveRir,
+                        expandOnStartup = expandOnStartup,
+                        onExpandOnStartupChange = saveExpandOnStartup,
+                        weightIncrement = weightIncrement,
+                        onIncrementChange = saveIncrement,
+                        sessions = sessions,
+                        onSaveSessions = saveSessions,
+                        selectedSession = selectedSession,
+                        onSelectedSessionChange = { selectedSession = it },
+                        menuExpanded = menuExpanded,
+                        onMenuToggle = { menuExpanded = it },
+                        showAddSessionDialog = showAddSessionDialog,
+                        onShowDialogChange = { showAddSessionDialog = it },
+                        newSessionNameText = newSessionNameText,
+                        onDialogTextChange = { newSessionNameText = it },
+                        showAddExerciseDialog = showAddExerciseDialog,
+                        onShowExerciseDialogChange = { showAddExerciseDialog = it },
+                        newExerciseNameText = newExerciseNameText,
+                        onExerciseDialogTextChange = { newExerciseNameText = it },
+                        exercises = sessionExercises[selectedSession] ?: emptyList(),
+                        onAddExercise = { exerciseName ->
+                            if (selectedSession.isNotEmpty()) {
+                                val list = sessionExercises.getOrPut(selectedSession) { mutableStateListOf() }
+                                list.add(Exercise(name = exerciseName))
                                 saveExercises()
                             }
-                        }
-                    },
-                    onUpdateSet = { exerciseIndex, setIndex, weight, reps, rir, rpe ->
-                        if (selectedSession.isNotEmpty()) {
-                            val list = sessionExercises[selectedSession]
-                            if (list != null && exerciseIndex in list.indices) {
-                                val exercise = list[exerciseIndex]
-                                if (setIndex in exercise.sets.indices) {
-                                    val updatedSets = exercise.sets.toMutableList()
-                                    val oldSet = updatedSets[setIndex]
-                                    updatedSets[setIndex] = oldSet.copy(
-                                        weight = weight ?: oldSet.weight,
-                                        reps = reps ?: oldSet.reps,
-                                        rir = rir ?: oldSet.rir,
-                                        rpe = rpe ?: oldSet.rpe
-                                    )
+                        },
+                        onAddSet = { exerciseIndex, setType ->
+                            if (selectedSession.isNotEmpty()) {
+                                val list = sessionExercises[selectedSession]
+                                if (list != null && exerciseIndex in list.indices) {
+                                    val exercise = list[exerciseIndex]
+                                    val updatedSets = exercise.sets + WorkoutSet(type = setType)
                                     list[exerciseIndex] = exercise.copy(sets = updatedSets)
                                     saveExercises()
                                 }
                             }
-                        }
-                    },
-                    onRemoveExercise = { index ->
-                        if (selectedSession.isNotEmpty()) {
-                            sessionExercises[selectedSession]?.removeAt(index)
+                        },
+                        onUpdateSet = { exerciseIndex, setIndex, weight, reps, rir, rpe ->
+                            if (selectedSession.isNotEmpty()) {
+                                val list = sessionExercises[selectedSession]
+                                if (list != null && exerciseIndex in list.indices) {
+                                    val exercise = list[exerciseIndex]
+                                    if (setIndex in exercise.sets.indices) {
+                                        val updatedSets = exercise.sets.toMutableList()
+                                        val oldSet = updatedSets[setIndex]
+                                        updatedSets[setIndex] = oldSet.copy(
+                                            weight = weight ?: oldSet.weight,
+                                            reps = reps ?: oldSet.reps,
+                                            rir = rir ?: oldSet.rir,
+                                            rpe = rpe ?: oldSet.rpe
+                                        )
+                                        list[exerciseIndex] = exercise.copy(sets = updatedSets)
+                                        saveExercises()
+                                    }
+                                }
+                            }
+                        },
+                        onRemoveExercise = { index ->
+                            if (selectedSession.isNotEmpty()) {
+                                sessionExercises[selectedSession]?.removeAt(index)
+                                saveExercises()
+                            }
+                        },
+                        onRemoveSet = { exerciseIndex, setIndex ->
+                            if (selectedSession.isNotEmpty()) {
+                                val list = sessionExercises[selectedSession]
+                                if (list != null && exerciseIndex in list.indices) {
+                                    val exercise = list[exerciseIndex]
+                                    if (setIndex in exercise.sets.indices) {
+                                        val updatedSets = exercise.sets.toMutableList()
+                                        updatedSets.removeAt(setIndex)
+                                        list[exerciseIndex] = exercise.copy(sets = updatedSets)
+                                        saveExercises()
+                                    }
+                                }
+                            }
+                        },
+                        onRemoveSession = { session ->
+                            sessions.remove(session)
+                            sessionExercises.remove(session)
+                            if (selectedSession == session) {
+                                selectedSession = if (sessions.isNotEmpty()) sessions.first() else ""
+                            }
+                            saveSessions()
                             saveExercises()
-                        }
-                    },
-                    onRemoveSet = { exerciseIndex, setIndex ->
-                        if (selectedSession.isNotEmpty()) {
-                            val list = sessionExercises[selectedSession]
-                            if (list != null && exerciseIndex in list.indices) {
-                                val exercise = list[exerciseIndex]
-                                if (setIndex in exercise.sets.indices) {
-                                    val updatedSets = exercise.sets.toMutableList()
-                                    updatedSets.removeAt(setIndex)
-                                    list[exerciseIndex] = exercise.copy(sets = updatedSets)
+                        },
+                        onRenameExercise = { exerciseIndex, newName ->
+                            if (selectedSession.isNotEmpty()) {
+                                val list = sessionExercises[selectedSession]
+                                if (list != null && exerciseIndex in list.indices) {
+                                    list[exerciseIndex] = list[exerciseIndex].copy(name = newName)
                                     saveExercises()
                                 }
                             }
-                        }
-                    },
-                    onRemoveSession = { session ->
-                        sessions.remove(session)
-                        sessionExercises.remove(session)
-                        if (selectedSession == session) {
-                            selectedSession = if (sessions.isNotEmpty()) sessions.first() else ""
-                        }
-                        saveSessions()
-                        saveExercises()
-                    },
-                    onRenameExercise = { exerciseIndex, newName ->
-                        if (selectedSession.isNotEmpty()) {
-                            val list = sessionExercises[selectedSession]
-                            if (list != null && exerciseIndex in list.indices) {
-                                list[exerciseIndex] = list[exerciseIndex].copy(name = newName)
-                                saveExercises()
-                            }
-                        }
-                    },
-                    onUpdateNote = { exerciseIndex, newNote ->
-                        if (selectedSession.isNotEmpty()) {
-                            val list = sessionExercises[selectedSession]
-                            if (list != null && exerciseIndex in list.indices) {
-                                list[exerciseIndex] = list[exerciseIndex].copy(note = newNote)
-                                saveExercises()
-                            }
-                        }
-                    },
-                    onMoveExercise = { from, to ->
-                        if (selectedSession.isNotEmpty()) {
-                            val list = sessionExercises[selectedSession]
-                            if (list != null && from in list.indices && to in list.indices) {
-                                val item = list.removeAt(from)
-                                list.add(to, item)
-                                saveExercises()
-                            }
-                        }
-                    },
-                    isEditMode = isEditMode,
-                    onEditModeChange = { isEditMode = it },
-                    accentColor = accentColor,
-                    onAccentColorChange = saveAccentColor,
-                    onExportData = {
-                        val dateStr = SimpleDateFormat("dd-MMM-yyyy", Locale.getDefault()).format(Date()).lowercase(Locale.getDefault())
-                        exportLauncher.launch("OSPOT_EXPORT_$dateStr.json")
-                    },
-                    onImportData = { importLauncher.launch(arrayOf("application/json")) },
-                    onClearProgressData = {
-                        scope.launch {
-                            dataStore.edit { it[PROGRESS_DATA_KEY] = "{}" }
-                        }
-                    },
-                    onSetLastProcessDate = { date ->
-                        scope.launch {
-                            dataStore.edit { it[LAST_PROCESS_DATE_KEY] = date }
-                        }
-                    },
-                    onManualSaveProgress = { date ->
-                        scope.launch {
-                            val prefs = dataStore.data.first()
-                            val progressJson = prefs[PROGRESS_DATA_KEY] ?: "{}"
-                            val progressMap = try {
-                                Json.decodeFromString<MutableMap<String, MutableMap<String, DayProgress>>>(progressJson)
-                            } catch (e: Exception) {
-                                mutableMapOf()
-                            }
-
-                            val exercisesJson = prefs[EXERCISES_KEY] ?: "{}"
-                            val exercisesMap = try {
-                                Json.decodeFromString<Map<String, List<Exercise>>>(exercisesJson)
-                            } catch (e: Exception) {
-                                emptyMap()
-                            }
-
-                            val maxes = mutableMapOf<String, DayProgress>()
-                            exercisesMap.values.flatten().forEach { exercise ->
-                                var maxWeight = 0.0
-                                var maxReps = 0
-                                exercise.sets.forEach { set ->
-                                    val w = set.weight.toDoubleOrNull() ?: 0.0
-                                    val r = set.reps.toIntOrNull() ?: 0
-                                    if (w > maxWeight) {
-                                        maxWeight = w
-                                        maxReps = r
-                                    } else if (w == maxWeight && r > maxReps) {
-                                        maxReps = r
-                                    }
-                                }
-                                if (maxWeight > 0 || maxReps > 0) {
-                                    val existing = maxes[exercise.name]
-                                    if (existing == null || maxWeight > existing.weight || (maxWeight == existing.weight && maxReps > existing.reps)) {
-                                        maxes[exercise.name] = DayProgress(maxWeight, maxReps)
-                                    }
+                        },
+                        onUpdateNote = { exerciseIndex, newNote ->
+                            if (selectedSession.isNotEmpty()) {
+                                val list = sessionExercises[selectedSession]
+                                if (list != null && exerciseIndex in list.indices) {
+                                    list[exerciseIndex] = list[exerciseIndex].copy(note = newNote)
+                                    saveExercises()
                                 }
                             }
-
-                            maxes.forEach { (exerciseName, progress) ->
-                                val exerciseData = progressMap.getOrPut(exerciseName) { mutableMapOf() }
-                                exerciseData[date] = progress
+                        },
+                        onMoveExercise = { from, to ->
+                            if (selectedSession.isNotEmpty()) {
+                                val list = sessionExercises[selectedSession]
+                                if (list != null && from in list.indices && to in list.indices) {
+                                    val item = list.removeAt(from)
+                                    list.add(to, item)
+                                    saveExercises()
+                                }
                             }
+                        },
+                        isEditMode = isEditMode,
+                        onEditModeChange = { isEditMode = it },
+                        accentColor = accentColor,
+                        onAccentColorChange = saveAccentColor,
+                        barLiquidState = barLiquidState,
+                        cardLiquidState = cardLiquidState,
+                        onExportData = {
+                            val dateStr = SimpleDateFormat("dd-MMM-yyyy", Locale.getDefault()).format(Date()).lowercase(Locale.getDefault())
+                            exportLauncher.launch("OSPOT_EXPORT_$dateStr.json")
+                        },
+                        onImportData = { importLauncher.launch(arrayOf("application/json")) },
+                        onClearProgressData = {
+                            scope.launch {
+                                dataStore.edit { it[PROGRESS_DATA_KEY] = "{}" }
+                            }
+                        },
+                        onSetLastProcessDate = { date ->
+                            scope.launch {
+                                dataStore.edit { it[LAST_PROCESS_DATE_KEY] = date }
+                            }
+                        },
+                        onManualSaveProgress = { date ->
+                            scope.launch {
+                                val prefs = dataStore.data.first()
+                                val progressJson = prefs[PROGRESS_DATA_KEY] ?: "{}"
+                                val progressMap = try {
+                                    Json.decodeFromString<MutableMap<String, MutableMap<String, DayProgress>>>(progressJson)
+                                } catch (e: Exception) {
+                                    mutableMapOf()
+                                }
 
-                            dataStore.edit { it[PROGRESS_DATA_KEY] = Json.encodeToString(progressMap) }
+                                val exercisesJson = prefs[EXERCISES_KEY] ?: "{}"
+                                val exercisesMap = try {
+                                    Json.decodeFromString<Map<String, List<Exercise>>>(exercisesJson)
+                                } catch (e: Exception) {
+                                    emptyMap()
+                                }
+
+                                val maxes = mutableMapOf<String, DayProgress>()
+                                exercisesMap.values.flatten().forEach { exercise ->
+                                    var maxWeight = 0.0
+                                    var maxReps = 0
+                                    exercise.sets.forEach { set ->
+                                        val w = set.weight.toDoubleOrNull() ?: 0.0
+                                        val r = set.reps.toIntOrNull() ?: 0
+                                        if (w > maxWeight) {
+                                            maxWeight = w
+                                            maxReps = r
+                                        } else if (w == maxWeight && r > maxReps) {
+                                            maxReps = r
+                                        }
+                                    }
+                                    if (maxWeight > 0 || maxReps > 0) {
+                                        val existing = maxes[exercise.name]
+                                        if (existing == null || maxWeight > existing.weight || (maxWeight == existing.weight && maxReps > existing.reps)) {
+                                            maxes[exercise.name] = DayProgress(maxWeight, maxReps)
+                                        }
+                                    }
+                                }
+
+                                maxes.forEach { (exerciseName, progress) ->
+                                    val exerciseData = progressMap.getOrPut(exerciseName) { mutableMapOf() }
+                                    exerciseData[date] = progress
+                                }
+
+                                dataStore.edit { it[PROGRESS_DATA_KEY] = Json.encodeToString(progressMap) }
+                            }
                         }
-                    }
-                )
+                    )
+                }
             }
         }
     }
@@ -670,6 +682,8 @@ fun WorkoutAppScreen(
     onEditModeChange: (Boolean) -> Unit,
     accentColor: Color,
     onAccentColorChange: (Color) -> Unit,
+    barLiquidState: LiquidState,
+    cardLiquidState: LiquidState,
     onExportData: () -> Unit,
     onImportData: () -> Unit,
     onClearProgressData: () -> Unit = {},
@@ -677,7 +691,6 @@ fun WorkoutAppScreen(
     onManualSaveProgress: (String) -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
-    val liquidState = rememberLiquidState()
     var showDeleteExerciseDialog by remember { mutableStateOf(false) }
     var exerciseIndexToDelete by remember { mutableIntStateOf(-1) }
 
@@ -702,6 +715,7 @@ fun WorkoutAppScreen(
     }
 
     Scaffold(
+        containerColor = Color.Transparent,
         topBar = {
             val topGradient = remember {
                 Brush.verticalGradient(
@@ -713,9 +727,9 @@ fun WorkoutAppScreen(
             }
             Box(
                 modifier = Modifier
-                    .liquid(liquidState){
-                        tint = Color.Black.copy(alpha = 0.25f)
-                        frost = 2.dp
+                    .liquid(barLiquidState){
+                        //tint = Color.Black.copy(alpha = 0.25f)
+                        frost = 3.dp
                         shape = RoundedCornerShape(
                             topStart = 0.dp,
                             topEnd = 0.dp,
@@ -763,11 +777,11 @@ fun WorkoutAppScreen(
                                 containerColor = Color.Transparent,
                                 modifier = Modifier
                                     //.width(135.dp)
-                                    .liquid(liquidState) {
+                                    .liquid(barLiquidState) {
                                         refraction = 0.20f
-                                        frost = 2.dp
+                                        frost = 3.dp
                                         edge = 0.01f
-                                        tint = Color.Black.copy(alpha = 0.25f)
+                                        //tint = Color.Black.copy(alpha = 0.25f)
                                         shape = RoundedCornerShape(16.dp)
                                     }
 
@@ -837,11 +851,11 @@ fun WorkoutAppScreen(
                                     modifier = Modifier
                                         .size(38.dp)
                                         .offset(x = (-4).dp, y = (-4).dp)
-                                        .liquid(liquidState) {
+                                        .liquid(barLiquidState) {
                                             curve = 1.0f
-                                            frost = 2.dp
+                                            frost = 3.dp
                                             edge = 0.025f
-                                            tint = Color.White.copy(alpha = 0.075f)
+                                            //tint = Color.White.copy(alpha = 0.075f)
                                             shape = RoundedCornerShape(24.dp)
                                         }
                                         .clickable(
@@ -872,11 +886,11 @@ fun WorkoutAppScreen(
                                         modifier = Modifier
                                             .size(38.dp)
                                             .offset(x = (-4).dp, y = (-4).dp)
-                                            .liquid(liquidState) {
+                                            .liquid(barLiquidState) {
                                                 curve = 1.0f
-                                                frost = 2.dp
+                                                frost = 3.dp
                                                 edge = 0.025f
-                                                tint = Color.White.copy(alpha = 0.075f)
+                                                //tint = Color.White.copy(alpha = 0.075f)
                                                 shape = RoundedCornerShape(24.dp)
                                             }
                                             .clickable(
@@ -918,9 +932,9 @@ fun WorkoutAppScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .liquid(liquidState){
-                            frost = 2.dp
-                            tint = Color.Black.copy(alpha = 0.25f)
+                        .liquid(barLiquidState){
+                            frost = 3.dp
+                            //tint = Color.Black.copy(alpha = 0.25f)
                             curve = 0.50f
                             shape = RoundedCornerShape(
                                 topStart = 24.dp,
@@ -930,7 +944,7 @@ fun WorkoutAppScreen(
                             )
                             edge = 0.025f
                         }
-                        .background(bottomGradient)
+                        //.background(bottomGradient)
                         .navigationBarsPadding()
                 ) {
                     Surface(
@@ -942,7 +956,7 @@ fun WorkoutAppScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(start = 12.dp, end = 12.dp)
+                                .padding(start = 10.dp, end = 10.dp)
                                 .horizontalScroll(rememberScrollState()),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Start
@@ -950,7 +964,7 @@ fun WorkoutAppScreen(
                             sessions.forEach { session ->
                                 val isSelected = selectedSession == session
                                 val sessionAlpha by animateFloatAsState(
-                                    targetValue = if (isSelected) 0.2f else 0.075f,
+                                    targetValue = if (isSelected) 0.2f else 0.0f,
                                     animationSpec = tween(durationMillis = 300),
                                     label = "SessionAlpha"
                                 )
@@ -963,8 +977,8 @@ fun WorkoutAppScreen(
                                 Box(
                                     modifier = Modifier
                                         .padding(end = 8.dp)
-                                        .liquid(liquidState) {
-                                            frost = 2.dp
+                                        .liquid(barLiquidState) {
+                                            frost = 3.dp
                                             curve = 1.0f
                                             edge = 0.025f
                                             tint = sessionTint.copy(alpha = sessionAlpha)
@@ -1017,11 +1031,11 @@ fun WorkoutAppScreen(
                             Box(
                                 modifier = Modifier
                                     .size(38.dp)
-                                    .liquid(liquidState) {
+                                    .liquid(barLiquidState) {
                                         curve = 1.0f
-                                        frost = 2.dp
+                                        frost = 3.dp
                                         edge = 0.025f
-                                        tint = Color.White.copy(alpha = 0.075f)
+                                        //tint = Color.White.copy(alpha = 0.075f)
                                         shape = RoundedCornerShape(24.dp)
                                     }
                                     //.background(brush = cardGradient, shape = RoundedCornerShape(50.dp))
@@ -1051,8 +1065,16 @@ fun WorkoutAppScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .liquefiable(liquidState)
         ) {
+            Image(
+                painter = painterResource(id = R.drawable.app_background),
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .liquefiable(cardLiquidState)
+                    .liquefiable(barLiquidState),
+                contentScale = ContentScale.Crop
+            )
             if (currentScreen == "workout_log") {
                 AnimatedContent(
                     targetState = selectedSession to exercises,
@@ -1066,7 +1088,8 @@ fun WorkoutAppScreen(
                     if (targetSession.isEmpty()) {
                         Box(
                             modifier = Modifier
-                                .fillMaxSize(),
+                                .fillMaxSize()
+                                .liquefiable(barLiquidState),
                             contentAlignment = Alignment.Center
                         ) {
                             Column(
@@ -1092,7 +1115,14 @@ fun WorkoutAppScreen(
                                     Box(
                                         modifier = Modifier
                                             .size(22.dp)
-                                            .background(brush = cardGradient, shape = RoundedCornerShape(50.dp))
+                                            .background(
+                                                Brush.verticalGradient(
+                                                    colors = listOf(
+                                                        Color(0xFF1E1E1E),
+                                                        Color(0xFF161616)
+                                                    )
+                                                ), shape = RoundedCornerShape(50.dp)
+                                            )
                                             .border(width = 1.dp, color = Color.Gray.copy(alpha = 0.25f), shape = RoundedCornerShape(50.dp)),
                                         contentAlignment = Alignment.Center
                                     ) {
@@ -1117,7 +1147,8 @@ fun WorkoutAppScreen(
                         if (targetExercises.isEmpty()) {
                             Box(
                                 modifier = Modifier
-                                    .fillMaxSize(),
+                                    .fillMaxSize()
+                                    .liquefiable(barLiquidState),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Column(
@@ -1157,7 +1188,9 @@ fun WorkoutAppScreen(
                         } else {
                             val sessionTransitionTime = remember(targetSession) { System.currentTimeMillis() }
                             LazyColumn(
-                                modifier = Modifier.fillMaxSize(),
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .liquefiable(barLiquidState),
                                 contentPadding = PaddingValues(
                                     top = innerPadding.calculateTopPadding(),
                                     bottom = innerPadding.calculateBottomPadding()
@@ -1216,7 +1249,8 @@ fun WorkoutAppScreen(
                                                 { onMoveExercise(index, index + 1) }
                                             } else null,
                                             accentColor = accentColor,
-                                            liquidState = liquidState,
+                                            cardLiquidState = cardLiquidState,
+                                            barLiquidState = barLiquidState,
                                             onDeleteClick = {
                                                 exerciseIndexToDelete = index
                                                 showDeleteExerciseDialog = true
@@ -1937,7 +1971,8 @@ fun ExerciseBox(
     onMoveUp: (() -> Unit)? = null,
     onMoveDown: (() -> Unit)? = null,
     accentColor: Color,
-    liquidState: LiquidState,
+    cardLiquidState: LiquidState,
+    barLiquidState: LiquidState,
     onDeleteClick: () -> Unit,
     isExpanded: Boolean,
     onToggleExpand: () -> Unit,
@@ -1997,15 +2032,13 @@ fun ExerciseBox(
             ),
             modifier = Modifier
                 .fillMaxWidth()
-                .background(
-                    brush = cardGradient,
+                .liquefiable(cardLiquidState)
+                .liquid(cardLiquidState) {
+                    frost = 3.dp
+                    edge = 0.01f
+                    //tint = Color.White.copy(alpha = 0.075f)
                     shape = RoundedCornerShape(16.dp)
-                )
-                .border(
-                    width = 1.dp,
-                    color = Color.Gray.copy(alpha = 0.2f),
-                    shape = RoundedCornerShape(16.dp)
-                )
+                }
         ) {
             Column(
                 modifier = Modifier
@@ -2385,11 +2418,11 @@ fun ExerciseBox(
                     shape = RoundedCornerShape(16.dp),
                     containerColor = Color.Transparent,
                     modifier = Modifier
-                        .liquid(liquidState) {
+                        .liquid(barLiquidState) {
                             refraction = 0.15f
-                            frost = 2.dp
+                            frost = 3.dp
                             edge = 0.01f
-                            tint = Color.Black.copy(alpha = 0.025f)
+                            //tint = Color.Black.copy(alpha = 0.025f)
                             shape = RoundedCornerShape(16.dp)
                         }
                 ) {
