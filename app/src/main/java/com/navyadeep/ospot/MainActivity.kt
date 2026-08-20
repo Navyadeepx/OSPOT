@@ -3254,30 +3254,37 @@ fun ProgressLineChart(
             textAlign = android.graphics.Paint.Align.CENTER
         }
         
+        // Calculate label frequency based on available space and zoom
+        // We want at least ~100px between label centers for readability
+        val minSpacePerLabel = 100f
+        val labelFrequency = if (xStep > 0) {
+            (minSpacePerLabel / xStep).toInt().coerceAtLeast(1)
+        } else 1
+
         allDates.forEachIndexed { index, dateStr ->
             val x = paddingLeft + index * xStep + offsetX
-            
-            if (x in (paddingLeft - 50f)..(width - paddingRight + 50f)) {
-                // Format date
-                val displayDate = try {
-                    val parts = dateStr.split("-")
-                    if (parts.size >= 3) "${parts[1]}/${parts[2]}" else dateStr
-                } catch (e: Exception) { dateStr }
-                
-                // Show label only if there is enough space or it's a major step
-                val firstVisibleIdx = ((-offsetX) / xStep).toInt().coerceAtLeast(0)
-                val lastVisibleIdx = ((chartWidth - offsetX) / xStep).toInt().coerceAtMost(allDates.size - 1)
-                val visibleCount = lastVisibleIdx - firstVisibleIdx + 1
 
-                val labelFrequency = when {
-                    visibleCount <= 7 -> 1
-                    scaleX > 4f -> 1
-                    scaleX > 2f -> 2
-                    scaleX > 1.5f -> 3
-                    else -> 5
+            if (x in (paddingLeft - 20f)..(width - paddingRight + 20f)) {
+                val isMajorStep = index % labelFrequency == 0
+                val isLast = index == allDates.size - 1
+
+                var shouldDrawText = isMajorStep
+                if (isLast && index > 0 && !isMajorStep) {
+                    val lastMajorIndex = (index / labelFrequency) * labelFrequency
+                    val prevX = paddingLeft + lastMajorIndex * xStep + offsetX
+                    if (x - prevX > minSpacePerLabel * 0.8f) {
+                        shouldDrawText = true
+                    }
                 }
-                
-                if (index == 0 || index == allDates.size - 1 || index % labelFrequency == 0) {
+
+                if (shouldDrawText) {
+                    val displayDate = try {
+                        val parts = dateStr.split("-")
+                        if (parts.size >= 3) "${parts[1]}/${parts[2]}" else dateStr
+                    } catch (e: Exception) {
+                        dateStr
+                    }
+
                     drawContext.canvas.nativeCanvas.drawText(
                         displayDate,
                         x,
@@ -3285,14 +3292,16 @@ fun ProgressLineChart(
                         xLabelPaint
                     )
                 }
-                
+
                 // Vertical grid line
-                drawLine(
-                    color = Color.Gray.copy(alpha = 0.1f),
-                    start = Offset(x, paddingTop),
-                    end = Offset(x, height - paddingBottom),
-                    strokeWidth = 1f
-                )
+                if (isMajorStep || isLast) {
+                    drawLine(
+                        color = Color.Gray.copy(alpha = 0.1f),
+                        start = Offset(x, paddingTop),
+                        end = Offset(x, height - paddingBottom),
+                        strokeWidth = 1f
+                    )
+                }
             }
         }
         
