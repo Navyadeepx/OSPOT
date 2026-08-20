@@ -12,8 +12,13 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -58,11 +63,16 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -78,7 +88,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.LocalOverscrollConfiguration
+import androidx.compose.foundation.LocalOverscrollFactory
 import io.github.fletchmckee.liquid.liquid
 import io.github.fletchmckee.liquid.rememberLiquidState
 import io.github.fletchmckee.liquid.liquefiable
@@ -93,7 +103,9 @@ import kotlinx.serialization.Serializable
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.sin
 import kotlin.math.sqrt
+import kotlin.random.Random
 
 val Context.dataStore by preferencesDataStore(name = "ospot_settings")
 
@@ -443,7 +455,7 @@ class MainActivity : ComponentActivity() {
             @OptIn(ExperimentalFoundationApi::class)
             OSPOTTheme {
                 CompositionLocalProvider(
-                    LocalOverscrollConfiguration provides null
+                    LocalOverscrollFactory provides null
                 ) {
                     WorkoutAppScreen(
                         currentScreen = currentScreen,
@@ -1066,14 +1078,11 @@ fun WorkoutAppScreen(
             modifier = Modifier
                 .fillMaxSize()
         ) {
-            Image(
-                painter = painterResource(id = R.drawable.app_background),
-                contentDescription = null,
+            StarryBackground(
                 modifier = Modifier
                     .fillMaxSize()
                     .liquefiable(cardLiquidState)
-                    .liquefiable(barLiquidState),
-                contentScale = ContentScale.Crop
+                    .liquefiable(barLiquidState)
             )
             if (currentScreen == "workout_log") {
                 AnimatedContent(
@@ -1913,7 +1922,7 @@ fun SettingsScreen(
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
-                Divider(color = Color.Gray.copy(alpha = 0.15f))
+                HorizontalDivider(color = Color.Gray.copy(alpha = 0.15f))
                 Spacer(modifier = Modifier.height(24.dp))
 
                 Text(
@@ -2032,12 +2041,13 @@ fun ExerciseBox(
             ),
             modifier = Modifier
                 .fillMaxWidth()
-                .liquefiable(cardLiquidState)
                 .liquid(cardLiquidState) {
                     frost = 3.dp
                     edge = 0.01f
+                    refraction = 0.15f
+                    curve = 0.50f
                     //tint = Color.White.copy(alpha = 0.075f)
-                    shape = RoundedCornerShape(16.dp)
+                    shape = RoundedCornerShape(24.dp)
                 }
         ) {
             Column(
@@ -2872,7 +2882,7 @@ fun ProgressChartScreen(
                                                 .pointerInput(name) {
                                                     awaitPointerEventScope {
                                                         while (true) {
-                                                            val down = awaitFirstDown()
+                                                            awaitFirstDown()
                                                             highlightedExercise = name
                                                             waitForUpOrCancellation()
                                                             highlightedExercise = null
@@ -3269,17 +3279,33 @@ fun ProgressLineChart(
     var scaleY by remember { mutableFloatStateOf(1f) }
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
+    
+    // Size for boundaries
+    var chartSize by remember { mutableStateOf(IntSize.Zero) }
+    val paddingLeft = 60f
+    val paddingRight = 20f
+    val paddingTop = 20f
+    val paddingBottom = 60f
 
     val state = rememberTransformableState { zoomChange, panChange, _ ->
         scaleX = (scaleX * zoomChange).coerceIn(1f, 10f)
         scaleY = (scaleY * zoomChange).coerceIn(1f, 10f)
-        offsetX += panChange.x
-        offsetY += panChange.y
+        
+        val width = chartSize.width.toFloat()
+        val height = chartSize.height.toFloat()
+        val chartWidth = (width - paddingLeft - paddingRight).coerceAtLeast(0f)
+        val chartHeight = (height - paddingTop - paddingBottom).coerceAtLeast(0f)
+        val totalXWidth = chartWidth * scaleX
+        val totalYHeight = chartHeight * scaleY
+
+        offsetX = (offsetX + panChange.x).coerceIn(-(totalXWidth - chartWidth), 0f)
+        offsetY = (offsetY + panChange.y).coerceIn(0f, (totalYHeight - chartHeight).coerceAtLeast(0f))
     }
 
     Canvas(
         modifier = Modifier
             .fillMaxSize()
+            .onSizeChanged { chartSize = it }
             .transformable(state = state)
             .nestedScroll(remember {
                 object : NestedScrollConnection {
@@ -3292,10 +3318,6 @@ fun ProgressLineChart(
     ) {
         val width = size.width
         val height = size.height
-        val paddingLeft = 60f
-        val paddingRight = 20f
-        val paddingTop = 20f
-        val paddingBottom = 60f
 
         val minWeightRaw = progressData.values.flatMap { it.values }.minOfOrNull { it.weight } ?: 0.0
         val maxWeightRaw = progressData.values.flatMap { it.values }.maxOfOrNull { it.weight } ?: 100.0
@@ -3309,11 +3331,6 @@ fun ProgressLineChart(
 
         // Apply Zoom and Pan to the coordinate system
         val totalXWidth = chartWidth * scaleX
-        val totalYHeight = chartHeight * scaleY
-        
-        // Boundaries for offset to keep chart in view
-        offsetX = offsetX.coerceIn(-(totalXWidth - chartWidth), 0f)
-        offsetY = offsetY.coerceIn(0f, totalYHeight - chartHeight)
 
         val xStep = if (allDates.size > 1) totalXWidth / (allDates.size - 1) else totalXWidth
         
@@ -3483,4 +3500,148 @@ fun ProgressLineChart(
 
         drawContext.canvas.restore()
     }
+}
+
+private data class Star(
+    val x: Float,          // 0f..1f, relative horizontal position
+    val y: Float,          // 0f..1f, relative vertical position
+    val radius: Float,     // px, base size
+    val baseAlpha: Float,  // base brightness
+    val twinkleSpeed: Float,   // how fast it pulses
+    val twinklePhase: Float,   // phase offset so stars don't pulse in sync
+    val driftSpeed: Float,     // px/sec drift (parallax layer speed)
+    val colorTint: Color        // slight color variation (white/blue/yellow)
+)
+
+/**
+ * @param starCount total number of stars across all depth layers
+ * @param layers number of parallax depth layers (more = more realistic depth)
+ * @param driftAngleDegrees direction stars drift in, e.g. 90f = straight down,
+ *   0f = rightward. Use a small nonzero value for a subtle "flying through space" feel.
+ * @param baseSpeedPxPerSec drift speed of the nearest (fastest) layer; farther
+ *   layers automatically move slower for parallax depth.
+ * @param backgroundGradient the deep-space background gradient colors
+ */
+@Composable
+fun StarryBackground(
+    modifier: Modifier = Modifier,
+    starCount: Int = 2000,
+    layers: Int = 5,
+    driftAngleDegrees: Float = 45f,
+    baseSpeedPxPerSec: Float = 24f,
+    backgroundGradient: List<Color> = listOf(
+        Color(0xFF000000),
+        Color(0xFF000000)
+    )
+) {
+    // Generate stable star field once per composition (not on every recomposition)
+    val stars = remember(starCount, layers) {
+        val random = Random(System.nanoTime())
+        List(starCount) { index ->
+            val layer = index % layers
+            // Farther layers (higher index) -> smaller, dimmer, slower
+            val depthFactor = 1f - (layer.toFloat() / layers) * 0.75f
+
+            val tint = when (random.nextInt(6)) {
+                0 -> Color(0xFFBFD7FF) // cool blue-white
+                1 -> Color(0xFFFFF4D6) // warm yellowish
+                else -> Color.White
+            }
+
+            Star(
+                x = random.nextFloat(),
+                y = random.nextFloat(),
+                radius = (0.8f + random.nextFloat() * 3f) * depthFactor,
+                baseAlpha = (0.35f + random.nextFloat() * 0.65f) * depthFactor,
+                twinkleSpeed = 0.5f + random.nextFloat() * 1.8f,
+                twinklePhase = random.nextFloat() * 6.2831855f,
+                driftSpeed = baseSpeedPxPerSec * depthFactor * (0.5f + random.nextFloat()),
+                colorTint = tint
+            )
+        }
+    }
+
+    // Single infinite time driver in seconds, looping cleanly to avoid float overflow
+    val infiniteTransition = rememberInfiniteTransition(label = "starfield_time")
+    val time by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1000f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1_000_000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "time"
+    )
+
+    val angleRad = Math.toRadians(driftAngleDegrees.toDouble())
+    val dirX = kotlin.math.cos(angleRad).toFloat()
+    val dirY = kotlin.math.sin(angleRad).toFloat()
+
+    Box(
+        modifier = modifier
+            .background(Brush.verticalGradient(backgroundGradient))
+    ) {
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                // graphicsLayer + CompositingStrategy improves blending quality for glow
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+        ) {
+            val w = size.width
+            val h = size.height
+
+            stars.forEach { star ->
+                drawStar(star, time, w, h, dirX, dirY)
+            }
+        }
+    }
+}
+
+private fun DrawScope.drawStar(
+    star: Star,
+    time: Float,
+    width: Float,
+    height: Float,
+    dirX: Float,
+    dirY: Float
+) {
+    // Base position in pixels
+    val baseX = star.x * width
+    val baseY = star.y * height
+
+    // Drift offset, wrapped around screen edges (toroidal wrap for seamless looping)
+    val driftX = dirX * star.driftSpeed * time
+    val driftY = dirY * star.driftSpeed * time
+
+    var px = (baseX + driftX).mod(width)
+    var py = (baseY + driftY).mod(height)
+    if (px < 0f) px += width
+    if (py < 0f) py += height
+
+    // Twinkle: smooth sinusoidal brightness pulse, phase-shifted per star
+    val twinkle = 0.6f + 0.4f * sin(time * star.twinkleSpeed + star.twinklePhase)
+    val alpha = (star.baseAlpha * twinkle).coerceIn(0.05f, 1f)
+
+    // Soft outer glow for brighter/nearer stars (adds realism)
+    if (star.radius > 1.2f) {
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    star.colorTint.copy(alpha = alpha * 0.35f),
+                    star.colorTint.copy(alpha = 0f)
+                ),
+                center = Offset(px, py),
+                radius = star.radius * 4f
+            ),
+            radius = star.radius * 4f,
+            center = Offset(px, py)
+        )
+    }
+
+    // Sharp core
+    drawCircle(
+        color = star.colorTint.copy(alpha = alpha),
+        radius = star.radius,
+        center = Offset(px, py)
+    )
 }
