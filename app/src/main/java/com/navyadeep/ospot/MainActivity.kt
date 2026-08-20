@@ -540,18 +540,9 @@ class MainActivity : ComponentActivity() {
                         exportLauncher.launch("OSPOT_EXPORT_$dateStr.json")
                     },
                     onImportData = { importLauncher.launch(arrayOf("application/json")) },
-                    onClearProgressData = {
+                    onManualSaveToday = {
                         scope.launch {
-                            dataStore.edit { it[PROGRESS_DATA_KEY] = "{}" }
-                        }
-                    },
-                    onSetLastProcessDate = { date ->
-                        scope.launch {
-                            dataStore.edit { it[LAST_PROCESS_DATE_KEY] = date }
-                        }
-                    },
-                    onManualSaveProgress = { date ->
-                        scope.launch {
+                            val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
                             val prefs = dataStore.data.first()
                             val progressJson = prefs[PROGRESS_DATA_KEY] ?: "{}"
                             val progressMap = try {
@@ -591,7 +582,7 @@ class MainActivity : ComponentActivity() {
 
                             maxes.forEach { (exerciseName, progress) ->
                                 val exerciseData = progressMap.getOrPut(exerciseName) { mutableMapOf() }
-                                exerciseData[date] = progress
+                                exerciseData[today] = progress
                             }
 
                             dataStore.edit { it[PROGRESS_DATA_KEY] = Json.encodeToString(progressMap) }
@@ -644,9 +635,7 @@ fun WorkoutAppScreen(
     onAccentColorChange: (Color) -> Unit,
     onExportData: () -> Unit,
     onImportData: () -> Unit,
-    onClearProgressData: () -> Unit = {},
-    onSetLastProcessDate: (String) -> Unit = {},
-    onManualSaveProgress: (String) -> Unit = {}
+    onManualSaveToday: () -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
     var showDeleteExerciseDialog by remember { mutableStateOf(false) }
@@ -774,14 +763,6 @@ fun WorkoutAppScreen(
                                     modifier = Modifier.height(42.dp).padding(horizontal = 4.dp)
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Debug", color = Color.White, fontSize = 16.sp) },
-                                    onClick = {
-                                        onScreenChange("debug")
-                                        onMenuToggle(false)
-                                    },
-                                    modifier = Modifier.height(42.dp).padding(horizontal = 4.dp)
-                                )
-                                DropdownMenuItem(
                                     text = { Text("v${BuildConfig.VERSION_NAME}", color = Color.Gray, fontSize = 12.sp) },
                                     onClick = { },
                                     modifier = Modifier.height(32.dp).padding(horizontal = 4.dp),
@@ -795,7 +776,7 @@ fun WorkoutAppScreen(
                     ),
                     actions = {
                         Row(modifier = Modifier.fillMaxHeight(), verticalAlignment = Alignment.CenterVertically) {
-                            if (currentScreen == "settings" || currentScreen == "progress_chart" || currentScreen == "debug") {
+                            if (currentScreen == "settings" || currentScreen == "progress_chart") {
                                 IconButton(
                                     onClick = { onScreenChange("workout_log") },
                                     modifier = Modifier.offset(x = 8.dp)
@@ -1168,7 +1149,8 @@ fun WorkoutAppScreen(
                         onAccentColorChange = onAccentColorChange,
                         onBackClick = { onScreenChange("workout_log") },
                         onExportData = onExportData,
-                        onImportData = onImportData
+                        onImportData = onImportData,
+                        onManualSaveToday = onManualSaveToday
                     )
                 }
             }
@@ -1186,21 +1168,6 @@ fun WorkoutAppScreen(
                 }
             }
 
-            if (currentScreen == "debug") {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                ) {
-                    DebugScreen(
-                        innerPadding = innerPadding,
-                        accentColor = accentColor,
-                        onBackClick = { onScreenChange("workout_log") },
-                        onClearProgressData = onClearProgressData,
-                        onSetLastProcessDate = onSetLastProcessDate,
-                        onManualSaveProgress = onManualSaveProgress
-                    )
-                }
-            }
         }
     }
 
@@ -1530,7 +1497,8 @@ fun SettingsScreen(
     onAccentColorChange: (Color) -> Unit,
     onBackClick: () -> Unit,
     onExportData: () -> Unit,
-    onImportData: () -> Unit
+    onImportData: () -> Unit,
+    onManualSaveToday: () -> Unit
 ){
     var incrementMenuExpanded by remember { mutableStateOf(false) }
 
@@ -1803,6 +1771,37 @@ fun SettingsScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text("Import Workout Data (JSON)", color = Color.White, fontSize = 14.sp)
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+                Divider(color = Color.Gray.copy(alpha = 0.15f))
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Text(
+                    text = "Manual Data Logging",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                Text(
+                    text = "Warning: This action is not reversible without manually editing the exported JSON and importing it again.",
+                    color = Color(0xFFC62828),
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF1E1E1E), RoundedCornerShape(12.dp))
+                        .border(1.dp, Color.Gray.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+                        .clickable { onManualSaveToday() }
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("Log Current Data for Today", color = Color.White, fontSize = 14.sp)
                 }
             }
         }
@@ -3040,75 +3039,6 @@ fun ProgressChartScreen(
     }
 }
 
-@Composable
-fun DebugScreen(
-    innerPadding: PaddingValues,
-    accentColor: Color,
-    onBackClick: () -> Unit,
-    onClearProgressData: () -> Unit,
-    onSetLastProcessDate: (String) -> Unit,
-    onManualSaveProgress: (String) -> Unit
-) {
-    var dateInput by remember { mutableStateOf(SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())) }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(innerPadding)
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Text("Debug Controls", fontSize = 24.sp, color = Color.White, fontWeight = FontWeight.Bold)
-
-        OutlinedTextField(
-            value = dateInput,
-            onValueChange = { dateInput = it },
-            label = { Text("Target Date (yyyy-MM-dd)", color = Color.Gray) },
-            textStyle = androidx.compose.ui.text.TextStyle(color = Color.White),
-            modifier = Modifier.fillMaxWidth(),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = accentColor,
-                unfocusedBorderColor = Color.Gray
-            )
-        )
-
-        Button(
-            onClick = { onManualSaveProgress(dateInput) },
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = accentColor)
-        ) {
-            Text("Save Current Data for Date", color = Color.Black)
-        }
-
-        Button(
-            onClick = { onSetLastProcessDate(dateInput) },
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)
-        ) {
-            Text("Set Last Process Date to Input", color = Color.White)
-        }
-
-        Button(
-            onClick = onClearProgressData,
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB00020))
-        ) {
-            Text("Clear All Progress Data", color = Color.White)
-        }
-
-        Spacer(modifier = Modifier.weight(1f))
-
-        Button(
-            onClick = onBackClick,
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-            border = BorderStroke(1.dp, Color.Gray)
-        ) {
-            Text("Back", color = Color.White)
-        }
-    }
-}
 
 @Composable
 fun ProgressLineChart(
