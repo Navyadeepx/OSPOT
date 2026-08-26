@@ -3058,9 +3058,7 @@ fun ProgressLineChart(
 
     val state = rememberTransformableState { zoomChange, panChange, _ ->
         scaleX = (scaleX * zoomChange).coerceIn(1f, 10f)
-        scaleY = (scaleY * zoomChange).coerceIn(1f, 10f)
         offsetX += panChange.x
-        offsetY += panChange.y
     }
 
     Canvas(
