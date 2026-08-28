@@ -2939,7 +2939,7 @@ fun ProgressChartScreen(
                     val orphanedExercises = allExerciseNames.filter { it !in exercisesInSessions }
                     
                     if (orphanedExercises.isNotEmpty()) {
-                        val sessionName = "Other"
+                        val sessionName = "Removed"
                         val isExpanded = expandedSessions[sessionName] ?: false
                         val selectedCountInSession = orphanedExercises.count { selectedExercises.contains(it) }
                         val allInSessionSelected = selectedCountInSession == orphanedExercises.size
