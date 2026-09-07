@@ -1560,7 +1560,15 @@ fun SettingsScreen(
                     )
                     Switch(
                         checked = showRir,
-                        onCheckedChange = onRirChange
+                        onCheckedChange = onRirChange,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = if (accentColor == Color.White) Color.Black else Color.White,
+                            checkedTrackColor = accentColor,
+                            checkedBorderColor = accentColor,
+                            uncheckedThumbColor = Color.Gray,
+                            uncheckedTrackColor = Color(0xFF1E1E1E),
+                            uncheckedBorderColor = Color.Gray.copy(alpha = 0.5f)
+                        )
                     )
                 }
 
@@ -1578,7 +1586,15 @@ fun SettingsScreen(
                     )
                     Switch(
                         checked = showRpe,
-                        onCheckedChange = onRpeChange
+                        onCheckedChange = onRpeChange,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = if (accentColor == Color.White) Color.Black else Color.White,
+                            checkedTrackColor = accentColor,
+                            checkedBorderColor = accentColor,
+                            uncheckedThumbColor = Color.Gray,
+                            uncheckedTrackColor = Color(0xFF1E1E1E),
+                            uncheckedBorderColor = Color.Gray.copy(alpha = 0.5f)
+                        )
                     )
                 }
 
