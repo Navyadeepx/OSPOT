@@ -2806,6 +2806,7 @@ fun ProgressChartScreen(
                         } else {
                             ProgressLineChart(
                                 progressData = progressData.filterKeys { it in selectedExercises },
+                                allProgressData = progressData,
                                 chartColorMap = chartColors,
                                 highlightedExercise = highlightedExercise,
                                 otherAlpha = highlightAlpha
@@ -3059,6 +3060,7 @@ fun ProgressChartScreen(
 @Composable
 fun ProgressLineChart(
     progressData: Map<String, Map<String, DayProgress>>,
+    allProgressData: Map<String, Map<String, DayProgress>>,
     chartColorMap: Map<String, Color>,
     highlightedExercise: String? = null,
     otherAlpha: Float = 1f
@@ -3097,11 +3099,11 @@ fun ProgressLineChart(
         val paddingTop = 20f
         val paddingBottom = 60f
 
-        val minWeightRaw = progressData.values.flatMap { it.values }.minOfOrNull { it.weight } ?: 0.0
-        val maxWeightRaw = progressData.values.flatMap { it.values }.maxOfOrNull { it.weight } ?: 100.0
-        
-        val minWeight = minWeightRaw
-        val maxWeight = maxWeightRaw
+        val minWeight = 0.0
+        val maxWeight = allProgressData.values
+            .mapNotNull { exerciseMap -> exerciseMap.maxByOrNull { it.key }?.value?.weight }
+            .maxOfOrNull { it }
+            ?.let { if (it <= 0.0) 100.0 else it } ?: 100.0
         val weightRange = (maxWeight - minWeight).coerceAtLeast(1.0)
 
         val chartWidth = width - paddingLeft - paddingRight
@@ -3160,6 +3162,7 @@ fun ProgressLineChart(
             val weightValRaw = minWeight + (i * weightPerStep)
             // Round to nearest weightPerStep to ensure logical values
             val weightVal = (Math.round(weightValRaw / weightPerStep) * weightPerStep)
+            if (weightVal < 0.0) continue
             
             // Ensure we only draw labels that make sense for the current viewport
             val y = paddingTop + chartHeight - (((weightVal - minWeight) / weightRange * chartHeight) * scaleY).toFloat() + offsetY
