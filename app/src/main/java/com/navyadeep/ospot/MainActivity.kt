@@ -47,6 +47,10 @@ import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.scale
@@ -67,6 +71,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextRange
@@ -88,6 +93,96 @@ import java.util.Locale
 import kotlin.math.sqrt
 
 val Context.dataStore by preferencesDataStore(name = "ospot_settings")
+
+private var activeVibrator: android.os.Vibrator? = null
+private var wakeLock: android.os.PowerManager.WakeLock? = null
+
+@Suppress("DEPRECATION")
+fun startTimerVibration(context: Context): android.os.Vibrator? {
+    try {
+        stopTimerVibration(context)
+
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+        if (wakeLock == null || wakeLock?.isHeld == false) {
+            wakeLock = powerManager?.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "OSPOT:RestTimerWakeLock")
+            wakeLock?.acquire(3 * 60 * 1000L)
+        }
+
+        val vibrator = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? android.os.VibratorManager
+            vibratorManager?.defaultVibrator
+        } else {
+            context.getSystemService(Context.VIBRATOR_SERVICE) as? android.os.Vibrator
+        }
+        activeVibrator = vibrator
+
+        if (vibrator != null && vibrator.hasVibrator()) {
+            val pattern = longArrayOf(0, 500, 500) // 0 ms delay, 500 ms vibrate, 500 ms pause (continuous pulse)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                val effect = android.os.VibrationEffect.createWaveform(pattern, 0)
+                val attrs = android.os.VibrationAttributes.createForUsage(android.os.VibrationAttributes.USAGE_ALARM)
+                vibrator.vibrate(effect, attrs)
+            } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                val effect = android.os.VibrationEffect.createWaveform(pattern, 0)
+                val audioAttrs = android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_ALARM)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+                vibrator.vibrate(effect, audioAttrs)
+            } else {
+                val audioAttrs = android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_ALARM)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+                vibrator.vibrate(pattern, 0, audioAttrs)
+            }
+        }
+        return vibrator
+    } catch (e: Exception) {
+        e.printStackTrace()
+        return null
+    }
+}
+
+fun stopTimerVibration(context: Context) {
+    try {
+        if (wakeLock?.isHeld == true) {
+            wakeLock?.release()
+        }
+        wakeLock = null
+
+        activeVibrator?.cancel()
+        activeVibrator = null
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? android.os.VibratorManager
+            vibratorManager?.cancel()
+            vibratorManager?.defaultVibrator?.cancel()
+        }
+        val sysVibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? android.os.Vibrator
+        sysVibrator?.cancel()
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+}
+
+fun stopTimerVibration(vibrator: android.os.Vibrator?) {
+    try {
+        vibrator?.cancel()
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+}
+
+fun formatTimerTime(totalSeconds: Int): String {
+    val mins = totalSeconds / 60
+    val secs = totalSeconds % 60
+    return String.format(Locale.getDefault(), "%d:%02d", mins, secs)
+}
+
+fun formatPresetLabel(seconds: Int): String {
+    return formatTimerTime(seconds)
+}
 
 @Serializable
 enum class SetType { WARMUP, PRIMER, WORKING }
@@ -119,7 +214,10 @@ data class WorkoutBackup(
     val weightIncrement: String,
     val accentColor: Long = 0xFFFFFFFFL,
     val progressData: Map<String, Map<String, DayProgress>> = emptyMap(),
-    val lastProcessDate: String = ""
+    val lastProcessDate: String = "",
+    val timerPresets: List<Int> = listOf(60, 90, 120, 180),
+    val allowCustomTimer: Boolean = true,
+    val timerVibration: Boolean = true
 )
 
 class MainActivity : ComponentActivity() {
@@ -132,6 +230,9 @@ class MainActivity : ComponentActivity() {
     private val EXERCISES_KEY = stringPreferencesKey("session_exercises")
     private val PROGRESS_DATA_KEY = stringPreferencesKey("progress_data")
     private val LAST_PROCESS_DATE_KEY = stringPreferencesKey("last_process_date")
+    private val TIMER_PRESETS_KEY = stringPreferencesKey("timer_presets")
+    private val ALLOW_CUSTOM_TIMER_KEY = booleanPreferencesKey("allow_custom_timer")
+    private val TIMER_VIBRATION_KEY = booleanPreferencesKey("timer_vibration")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -159,6 +260,18 @@ class MainActivity : ComponentActivity() {
 
         val initialAccentColor = initialPrefs[ACCENT_COLOR_KEY] ?: 0xFFFFFFFFL
 
+        val initialTimerPresetsJson = initialPrefs[TIMER_PRESETS_KEY] ?: ""
+        val initialTimerPresets = if (initialTimerPresetsJson.isNotEmpty()) {
+            try {
+                Json.decodeFromString<List<Int>>(initialTimerPresetsJson)
+            } catch (e: Exception) {
+                listOf(60, 90, 120, 180)
+            }
+        } else listOf(60, 90, 120, 180)
+
+        val initialAllowCustomTimer = initialPrefs[ALLOW_CUSTOM_TIMER_KEY] ?: true
+        val initialTimerVibration = initialPrefs[TIMER_VIBRATION_KEY] ?: true
+
         setContent {
             val scope = rememberCoroutineScope()
 
@@ -180,7 +293,10 @@ class MainActivity : ComponentActivity() {
                                 weightIncrement = prefs[INCREMENT_KEY] ?: "2.5",
                                 accentColor = prefs[ACCENT_COLOR_KEY] ?: 0xFFFFFFFFL,
                                 progressData = Json.decodeFromString(prefs[PROGRESS_DATA_KEY] ?: "{}"),
-                                lastProcessDate = prefs[LAST_PROCESS_DATE_KEY] ?: ""
+                                lastProcessDate = prefs[LAST_PROCESS_DATE_KEY] ?: "",
+                                timerPresets = initialTimerPresets,
+                                allowCustomTimer = initialAllowCustomTimer,
+                                timerVibration = initialTimerVibration
                             )
                             
                             val backupJson = Json.encodeToString(backup)
@@ -203,6 +319,10 @@ class MainActivity : ComponentActivity() {
             var selectedSession by remember { mutableStateOf(initialSelectedSession) }
             var menuExpanded by remember { mutableStateOf(false) }
             var isEditMode by remember { mutableStateOf(false) }
+
+            val timerPresets = remember { mutableStateListOf<Int>().apply { addAll(initialTimerPresets) } }
+            var allowCustomTimer by remember { mutableStateOf(initialAllowCustomTimer) }
+            var timerVibration by remember { mutableStateOf(initialTimerVibration) }
 
             var showAddSessionDialog by remember { mutableStateOf(false) }
             var newSessionNameText by remember { mutableStateOf("") }
@@ -236,6 +356,9 @@ class MainActivity : ComponentActivity() {
                                     prefs[ACCENT_COLOR_KEY] = backup.accentColor
                                     prefs[PROGRESS_DATA_KEY] = Json.encodeToString(backup.progressData)
                                     prefs[LAST_PROCESS_DATE_KEY] = backup.lastProcessDate
+                                    prefs[TIMER_PRESETS_KEY] = Json.encodeToString(backup.timerPresets)
+                                    prefs[ALLOW_CUSTOM_TIMER_KEY] = backup.allowCustomTimer
+                                    prefs[TIMER_VIBRATION_KEY] = backup.timerVibration
                                 }
 
                                 // Update local state
@@ -250,6 +373,10 @@ class MainActivity : ComponentActivity() {
                                 weightIncrement = backup.weightIncrement
                                 accentColor = Color(backup.accentColor.toInt())
                                 if (sessions.isNotEmpty()) selectedSession = sessions.first()
+                                timerPresets.clear()
+                                timerPresets.addAll(backup.timerPresets)
+                                allowCustomTimer = backup.allowCustomTimer
+                                timerVibration = backup.timerVibration
                                 
                                 Toast.makeText(this@MainActivity, "Data imported successfully", Toast.LENGTH_SHORT).show()
                             }
@@ -298,6 +425,21 @@ class MainActivity : ComponentActivity() {
                         e.printStackTrace()
                     }
                 }
+
+                val savedTimerPresetsJson = prefs[TIMER_PRESETS_KEY] ?: ""
+                if (savedTimerPresetsJson.isNotEmpty()) {
+                    try {
+                        val decodedList = Json.decodeFromString<List<Int>>(savedTimerPresetsJson)
+                        if (timerPresets.toList() != decodedList) {
+                            timerPresets.clear()
+                            timerPresets.addAll(decodedList)
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+                allowCustomTimer = prefs[ALLOW_CUSTOM_TIMER_KEY] ?: true
+                timerVibration = prefs[TIMER_VIBRATION_KEY] ?: true
 
                 // Auto-save logic for progress chart
                 val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
@@ -396,6 +538,22 @@ class MainActivity : ComponentActivity() {
                 scope.launch { dataStore.edit { it[ACCENT_COLOR_KEY] = color.toArgb().toLong() } }
             }
 
+            val saveTimerPresets: (List<Int>) -> Unit = { newPresets ->
+                timerPresets.clear()
+                timerPresets.addAll(newPresets)
+                scope.launch { dataStore.edit { it[TIMER_PRESETS_KEY] = Json.encodeToString(newPresets) } }
+            }
+
+            val saveAllowCustomTimer: (Boolean) -> Unit = { value ->
+                allowCustomTimer = value
+                scope.launch { dataStore.edit { it[ALLOW_CUSTOM_TIMER_KEY] = value } }
+            }
+
+            val saveTimerVibration: (Boolean) -> Unit = { value ->
+                timerVibration = value
+                scope.launch { dataStore.edit { it[TIMER_VIBRATION_KEY] = value } }
+            }
+
             val saveSessions: () -> Unit = {
                 scope.launch {
                     val jsonString = Json.encodeToString(sessions.toList())
@@ -421,6 +579,12 @@ class MainActivity : ComponentActivity() {
                     onRirChange = saveRir,
                     weightIncrement = weightIncrement,
                     onIncrementChange = saveIncrement,
+                    timerPresets = timerPresets,
+                    onSaveTimerPresets = saveTimerPresets,
+                    allowCustomTimer = allowCustomTimer,
+                    onAllowCustomTimerChange = saveAllowCustomTimer,
+                    timerVibration = timerVibration,
+                    onTimerVibrationChange = saveTimerVibration,
                     sessions = sessions,
                     onSaveSessions = saveSessions,
                     selectedSession = selectedSession,
@@ -605,6 +769,12 @@ fun WorkoutAppScreen(
     onRirChange: (Boolean) -> Unit,
     weightIncrement: String,
     onIncrementChange: (String) -> Unit,
+    timerPresets: androidx.compose.runtime.snapshots.SnapshotStateList<Int>,
+    onSaveTimerPresets: (List<Int>) -> Unit,
+    allowCustomTimer: Boolean,
+    onAllowCustomTimerChange: (Boolean) -> Unit,
+    timerVibration: Boolean,
+    onTimerVibrationChange: (Boolean) -> Unit,
     sessions: androidx.compose.runtime.snapshots.SnapshotStateList<String>,
     onSaveSessions: () -> Unit,
     selectedSession: String,
@@ -638,6 +808,7 @@ fun WorkoutAppScreen(
     onManualSaveToday: () -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var showDeleteExerciseDialog by remember { mutableStateOf(false) }
     var exerciseIndexToDelete by remember { mutableIntStateOf(-1) }
 
@@ -645,6 +816,57 @@ fun WorkoutAppScreen(
     var sessionToDelete by remember { mutableStateOf("") }
 
     val expandedStates = remember { mutableStateMapOf<String, Boolean>() }
+
+    var timerSecondsRemaining by remember { mutableIntStateOf(0) }
+    var timerTotalSeconds by remember { mutableIntStateOf(0) }
+    var timerEndTimeMillis by remember { mutableLongStateOf(0L) }
+    var isTimerRunning by remember { mutableStateOf(false) }
+    var showCustomTimerDialog by remember { mutableStateOf(false) }
+
+    val startTimer: (Int) -> Unit = { durationSeconds ->
+        stopTimerVibration(context)
+        timerTotalSeconds = durationSeconds
+        timerSecondsRemaining = durationSeconds
+        timerEndTimeMillis = System.currentTimeMillis() + durationSeconds * 1000L
+        isTimerRunning = true
+        RestTimerReceiver.schedule(context, durationSeconds, timerVibration)
+    }
+
+    val stopTimer: () -> Unit = {
+        isTimerRunning = false
+        timerSecondsRemaining = 0
+        timerTotalSeconds = 0
+        timerEndTimeMillis = 0L
+        RestTimerReceiver.cancel(context)
+    }
+
+    val pauseTimer: () -> Unit = {
+        isTimerRunning = false
+        RestTimerReceiver.cancel(context)
+    }
+
+    val resumeTimer: () -> Unit = {
+        if (timerSecondsRemaining > 0) {
+            timerEndTimeMillis = System.currentTimeMillis() + timerSecondsRemaining * 1000L
+            isTimerRunning = true
+            RestTimerReceiver.schedule(context, timerSecondsRemaining, timerVibration)
+        }
+    }
+
+    LaunchedEffect(isTimerRunning, timerEndTimeMillis) {
+        if (isTimerRunning && timerEndTimeMillis > 0L) {
+            while (isTimerRunning) {
+                val now = System.currentTimeMillis()
+                val remaining = maxOf(0, ((timerEndTimeMillis - now + 999L) / 1000L).toInt())
+                timerSecondsRemaining = remaining
+                if (remaining == 0) {
+                    isTimerRunning = false
+                    break
+                }
+                delay(250L)
+            }
+        }
+    }
 
     val cardGradient = remember {
         Brush.verticalGradient(
@@ -681,28 +903,111 @@ fun WorkoutAppScreen(
                     title = {
                         Box(modifier = Modifier.fillMaxHeight(), contentAlignment = Alignment.CenterStart) {
                             Row(
-                                modifier = Modifier
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) {
-                                        onMenuToggle(!menuExpanded)
-                                    }
-                                    .padding(start = 0.dp)
-                                    .offset(x = (-4).dp)
-                                    .padding(vertical = 0.dp),
+                                modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Image(
-                                    painter = painterResource(id = R.drawable.ospot_logo),
-                                    contentDescription = "OSPOT",
-                                    modifier = Modifier.height(32.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Icon(
-                                    imageVector = if (menuExpanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
-                                    contentDescription = "Toggle Menu"
-                                )
+                                // Logo & Arrow Trigger for Main Menu
+                                Row(
+                                    modifier = Modifier
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null
+                                        ) {
+                                            onMenuToggle(!menuExpanded)
+                                        }
+                                        .padding(start = 0.dp)
+                                        .offset(x = (-4).dp)
+                                        .padding(vertical = 0.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Image(
+                                        painter = painterResource(id = R.drawable.ospot_logo),
+                                        contentDescription = "OSPOT",
+                                        modifier = Modifier.height(32.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(
+                                        imageVector = if (menuExpanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                                        contentDescription = "Toggle Menu"
+                                    )
+                                }
+
+                                // Right-Anchored Timer Pill
+                                if (timerTotalSeconds > 0) {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                    val isFinished = timerSecondsRemaining == 0
+                                    val pillBgColor = if (isFinished) Color(0xFF3E1212) else Color(
+                                        red = accentColor.red * 0.15f,
+                                        green = accentColor.green * 0.15f,
+                                        blue = accentColor.blue * 0.15f,
+                                        alpha = 1.0f
+                                    )
+                                    val pillBorderColor = if (isFinished) Color(0xFFC62828) else accentColor.copy(alpha = 0.5f)
+
+                                    Box(
+                                        modifier = Modifier
+                                            .offset(x = 8.dp)
+                                            .background(pillBgColor, RoundedCornerShape(128.dp))
+                                            .border(1.dp, pillBorderColor, RoundedCornerShape(126.dp))
+                                            .padding(horizontal = 6.dp, vertical = 4.dp)
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(28.dp)
+                                                    .clickable(
+                                                        interactionSource = remember { MutableInteractionSource() },
+                                                        indication = null
+                                                    ) {
+                                                        if (isFinished) {
+                                                            startTimer(timerTotalSeconds)
+                                                        } else {
+                                                            if (isTimerRunning) pauseTimer() else resumeTimer()
+                                                        }
+                                                    },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = if (isFinished) Icons.Rounded.Refresh else if (isTimerRunning) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                                                    contentDescription = if (isFinished) "Restart" else if (isTimerRunning) "Pause" else "Resume",
+                                                    tint = if (isFinished) Color.White else accentColor,
+                                                    modifier = Modifier.size(if (!isFinished && !isTimerRunning) 28.dp else 24.dp)
+                                                )
+                                            }
+
+                                            Spacer(modifier = Modifier.width(6.dp))
+
+                                            Text(
+                                                text = formatTimerTime(timerSecondsRemaining),
+                                                color = Color.White,
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.offset(y = 1.dp)
+                                            )
+
+                                            Spacer(modifier = Modifier.width(6.dp))
+
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(30.dp)
+                                                    .clickable(
+                                                        interactionSource = remember { MutableInteractionSource() },
+                                                        indication = null
+                                                    ) {
+                                                        stopTimer()
+                                                    },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Close,
+                                                    contentDescription = "Dismiss Timer",
+                                                    tint = if (isFinished) Color(0xFFFF5252) else Color.Gray,
+                                                    modifier = Modifier.size(24.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
 
                             DropdownMenu(
@@ -712,7 +1017,7 @@ fun WorkoutAppScreen(
                                 shape = RoundedCornerShape(12.dp),
                                 containerColor = Color.Transparent,
                                 modifier = Modifier
-                                    .width(135.dp)
+                                    .width(180.dp)
                                     .background(
                                         brush = Brush.verticalGradient(
                                             colors = listOf(
@@ -725,18 +1030,18 @@ fun WorkoutAppScreen(
                                     .border(1.dp, Color.Gray.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("Settings", color = Color.White, fontSize = 16.sp) },
+                                    text = { Text("Settings", color = Color.White, fontSize = 15.sp) },
                                     onClick = {
                                         onScreenChange("settings")
                                         onMenuToggle(false)
                                     },
-                                    modifier = Modifier.height(42.dp).padding(horizontal = 4.dp)
+                                    modifier = Modifier.height(40.dp).padding(horizontal = 4.dp)
                                 )
                                 val allExpanded = exercises.isNotEmpty() && exercises.indices.all {
                                     expandedStates[exercises[it].name + it] ?: false
                                 }
                                 DropdownMenuItem(
-                                    text = { Text(if (allExpanded) "Collapse All" else "Expand All", color = Color.White, fontSize = 16.sp) },
+                                    text = { Text(if (allExpanded) "Collapse All" else "Expand All", color = Color.White, fontSize = 15.sp) },
                                     onClick = {
                                         val target = !allExpanded
                                         exercises.forEachIndexed { index, exercise ->
@@ -744,24 +1049,81 @@ fun WorkoutAppScreen(
                                         }
                                         onMenuToggle(false)
                                     },
-                                    modifier = Modifier.height(42.dp).padding(horizontal = 4.dp)
+                                    modifier = Modifier.height(40.dp).padding(horizontal = 4.dp)
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Edit", color = Color.White, fontSize = 16.sp) },
+                                    text = { Text("Edit", color = Color.White, fontSize = 15.sp) },
                                     onClick = {
                                         onEditModeChange(true)
                                         onMenuToggle(false)
                                     },
-                                    modifier = Modifier.height(42.dp).padding(horizontal = 4.dp)
+                                    modifier = Modifier.height(40.dp).padding(horizontal = 4.dp)
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Progress Chart", color = Color.White, fontSize = 16.sp) },
+                                    text = { Text("Progress Chart", color = Color.White, fontSize = 15.sp) },
                                     onClick = {
                                         onScreenChange("progress_chart")
                                         onMenuToggle(false)
                                     },
-                                    modifier = Modifier.height(42.dp).padding(horizontal = 4.dp)
+                                    modifier = Modifier.height(40.dp).padding(horizontal = 4.dp)
                                 )
+
+                                HorizontalDivider(color = Color.Gray.copy(alpha = 0.15f), modifier = Modifier.height(8.dp))
+
+                                DropdownMenuItem(
+                                    text = {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Timer,
+                                                contentDescription = null,
+                                                tint = accentColor,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "Rest Timer",
+                                                color = Color.Gray,
+                                                fontSize = 12.sp,
+                                            )
+                                        }
+                                    },
+                                    onClick = { },
+                                    enabled = false,
+                                    modifier = Modifier.height(30.dp).padding(horizontal = 4.dp)
+                                )
+
+                                timerPresets.forEach { preset ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = formatTimerTime(preset),
+                                                color = Color.White,
+                                                fontSize = 14.sp
+                                            )
+                                        },
+                                        onClick = {
+                                            startTimer(preset)
+                                            onMenuToggle(false)
+                                        },
+                                        modifier = Modifier.height(34.dp).padding(horizontal = 4.dp)
+                                    )
+                                }
+
+                                if (allowCustomTimer) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text("Custom...", color = accentColor, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                                        },
+                                        onClick = {
+                                            onMenuToggle(false)
+                                            showCustomTimerDialog = true
+                                        },
+                                        modifier = Modifier.height(38.dp).padding(horizontal = 4.dp)
+                                    )
+                                }
+
+                                HorizontalDivider(color = Color.Gray.copy(alpha = 0.15f), modifier = Modifier.height(8.dp))
+
                                 DropdownMenuItem(
                                     text = { Text("v${BuildConfig.VERSION_NAME}", color = Color.Gray, fontSize = 12.sp) },
                                     onClick = { },
@@ -788,13 +1150,6 @@ fun WorkoutAppScreen(
                                     )
                                 }
                             } else {
-                                IconButton(onClick = { onScreenChange("settings") }) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Close,
-                                        contentDescription = "Swap View",
-                                        tint = Color.Transparent
-                                    )
-                                }
                                 if (selectedSession.isNotEmpty()) {
                                     IconButton(
                                         onClick = {
@@ -1147,6 +1502,12 @@ fun WorkoutAppScreen(
                         onIncrementChange = onIncrementChange,
                         accentColor = accentColor,
                         onAccentColorChange = onAccentColorChange,
+                        timerPresets = timerPresets,
+                        onTimerPresetsChange = onSaveTimerPresets,
+                        allowCustomTimer = allowCustomTimer,
+                        onAllowCustomTimerChange = onAllowCustomTimerChange,
+                        timerVibration = timerVibration,
+                        onTimerVibrationChange = onTimerVibrationChange,
                         onBackClick = { onScreenChange("workout_log") },
                         onExportData = onExportData,
                         onImportData = onImportData,
@@ -1392,6 +1753,95 @@ fun WorkoutAppScreen(
             }
         )
     }
+
+    if (showCustomTimerDialog) {
+        var customMinsText by remember { mutableStateOf("1") }
+        var customSecsText by remember { mutableStateOf("30") }
+
+        AlertDialog(
+            onDismissRequest = { showCustomTimerDialog = false },
+            containerColor = Color(0xFF161616),
+            shape = RoundedCornerShape(20.dp),
+            modifier = Modifier.border(
+                width = 1.dp,
+                color = Color.Gray.copy(alpha = 0.25f),
+                shape = RoundedCornerShape(20.dp)
+            ),
+            title = {
+                Text(
+                    text = "One-Time Custom Timer",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = customMinsText,
+                        onValueChange = { customMinsText = it.filter { char -> char.isDigit() } },
+                        label = { Text("Minutes", color = Color.Gray, fontSize = 12.sp) },
+                        singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                        ),
+                        textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 15.sp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = Color(0xFF1E1E1E),
+                            unfocusedContainerColor = Color(0xFF1E1E1E),
+                            focusedBorderColor = accentColor,
+                            unfocusedBorderColor = Color.Gray.copy(alpha = 0.25f)
+                        ),
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    OutlinedTextField(
+                        value = customSecsText,
+                        onValueChange = { customSecsText = it.filter { char -> char.isDigit() } },
+                        label = { Text("Seconds", color = Color.Gray, fontSize = 12.sp) },
+                        singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                        ),
+                        textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 15.sp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = Color(0xFF1E1E1E),
+                            unfocusedContainerColor = Color(0xFF1E1E1E),
+                            focusedBorderColor = accentColor,
+                            unfocusedBorderColor = Color.Gray.copy(alpha = 0.25f)
+                        ),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val mins = customMinsText.toIntOrNull() ?: 0
+                        val secs = customSecsText.toIntOrNull() ?: 0
+                        val totalSecs = mins * 60 + secs
+                        if (totalSecs > 0) {
+                            startTimer(totalSecs)
+                        }
+                        showCustomTimerDialog = false
+                    }
+                ) {
+                    Text("Start", color = accentColor, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCustomTimerDialog = false }) {
+                    Text("Cancel", color = Color.Gray)
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -1495,12 +1945,19 @@ fun SettingsScreen(
     onIncrementChange: (String) -> Unit,
     accentColor: Color,
     onAccentColorChange: (Color) -> Unit,
+    timerPresets: List<Int>,
+    onTimerPresetsChange: (List<Int>) -> Unit,
+    allowCustomTimer: Boolean,
+    onAllowCustomTimerChange: (Boolean) -> Unit,
+    timerVibration: Boolean,
+    onTimerVibrationChange: (Boolean) -> Unit,
     onBackClick: () -> Unit,
     onExportData: () -> Unit,
     onImportData: () -> Unit,
     onManualSaveToday: () -> Unit
 ){
     var incrementMenuExpanded by remember { mutableStateOf(false) }
+    var showAddPresetDialog by remember { mutableStateOf(false) }
 
     val cardGradient = remember {
         Brush.verticalGradient(
@@ -1756,6 +2213,153 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(24.dp))
 
                 Text(
+                    text = "Rest Timer Settings",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+
+                Text(
+                    text = "Preset Timers",
+                    fontSize = 14.sp,
+                    color = Color.White.copy(alpha = 0.8f),
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    timerPresets.forEach { preset ->
+                        Box(
+                            modifier = Modifier
+                                .background(Color(0xFF1E1E1E), RoundedCornerShape(16.dp))
+                                .border(1.dp, Color.Gray.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = formatPresetLabel(preset),
+                                    color = Color.White,
+                                    fontSize = 13.sp
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .size(16.dp)
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null
+                                        ) {
+                                            val updated = timerPresets.toMutableList()
+                                            updated.remove(preset)
+                                            onTimerPresetsChange(updated)
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Close,
+                                        contentDescription = "Remove Preset",
+                                        tint = Color.Gray,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .background(Color(0xFF1E1E1E), RoundedCornerShape(16.dp))
+                            .border(1.dp, accentColor.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                            .clickable { showAddPresetDialog = true }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Filled.Add,
+                                contentDescription = "Add Preset",
+                                tint = accentColor,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Add Preset",
+                                color = accentColor,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Allow One-Time Custom Timer in Dropdown",
+                        fontSize = 15.sp,
+                        color = Color.White.copy(alpha = 0.9f),
+                        modifier = Modifier.weight(1f).padding(end = 8.dp)
+                    )
+                    Switch(
+                        checked = allowCustomTimer,
+                        onCheckedChange = onAllowCustomTimerChange,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = if (accentColor == Color.White) Color.Black else Color.White,
+                            checkedTrackColor = accentColor,
+                            checkedBorderColor = accentColor,
+                            uncheckedThumbColor = Color.Gray,
+                            uncheckedTrackColor = Color(0xFF1E1E1E),
+                            uncheckedBorderColor = Color.Gray.copy(alpha = 0.5f)
+                        )
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        Text(
+                            text = "Vibrate on Timer Finish",
+                            fontSize = 15.sp,
+                            color = Color.White.copy(alpha = 0.9f)
+                        )
+                        Text(
+                            text = "Continuous pulse until timer dialog is dismissed",
+                            fontSize = 11.sp,
+                            color = Color.Gray
+                        )
+                    }
+                    Switch(
+                        checked = timerVibration,
+                        onCheckedChange = onTimerVibrationChange,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = if (accentColor == Color.White) Color.Black else Color.White,
+                            checkedTrackColor = accentColor,
+                            checkedBorderColor = accentColor,
+                            uncheckedThumbColor = Color.Gray,
+                            uncheckedTrackColor = Color(0xFF1E1E1E),
+                            uncheckedBorderColor = Color.Gray.copy(alpha = 0.5f)
+                        )
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+                Divider(color = Color.Gray.copy(alpha = 0.15f))
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Text(
                     text = "Data Management",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
@@ -1821,6 +2425,96 @@ fun SettingsScreen(
                 }
             }
         }
+    }
+
+    if (showAddPresetDialog) {
+        var presetMinsText by remember { mutableStateOf("1") }
+        var presetSecsText by remember { mutableStateOf("00") }
+
+        AlertDialog(
+            onDismissRequest = { showAddPresetDialog = false },
+            containerColor = Color(0xFF161616),
+            shape = RoundedCornerShape(20.dp),
+            modifier = Modifier.border(
+                width = 1.dp,
+                color = Color.Gray.copy(alpha = 0.25f),
+                shape = RoundedCornerShape(20.dp)
+            ),
+            title = {
+                Text(
+                    text = "Add Preset Timer",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = presetMinsText,
+                        onValueChange = { presetMinsText = it.filter { char -> char.isDigit() } },
+                        label = { Text("Minutes", color = Color.Gray, fontSize = 12.sp) },
+                        singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                        ),
+                        textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 15.sp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = Color(0xFF1E1E1E),
+                            unfocusedContainerColor = Color(0xFF1E1E1E),
+                            focusedBorderColor = accentColor,
+                            unfocusedBorderColor = Color.Gray.copy(alpha = 0.25f)
+                        ),
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    OutlinedTextField(
+                        value = presetSecsText,
+                        onValueChange = { presetSecsText = it.filter { char -> char.isDigit() } },
+                        label = { Text("Seconds", color = Color.Gray, fontSize = 12.sp) },
+                        singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                        ),
+                        textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 15.sp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = Color(0xFF1E1E1E),
+                            unfocusedContainerColor = Color(0xFF1E1E1E),
+                            focusedBorderColor = accentColor,
+                            unfocusedBorderColor = Color.Gray.copy(alpha = 0.25f)
+                        ),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val mins = presetMinsText.toIntOrNull() ?: 0
+                        val secs = presetSecsText.toIntOrNull() ?: 0
+                        val totalSecs = mins * 60 + secs
+                        if (totalSecs > 0 && !timerPresets.contains(totalSecs)) {
+                            val updated = (timerPresets + totalSecs).sorted()
+                            onTimerPresetsChange(updated)
+                        }
+                        showAddPresetDialog = false
+                    }
+                ) {
+                    Text("Add", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddPresetDialog = false }) {
+                    Text("Cancel", color = Color.Gray)
+                }
+            }
+        )
     }
 }
 
