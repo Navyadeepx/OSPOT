@@ -75,23 +75,23 @@ Each set is tagged so warmups don't pollute your real numbers, and each type has
 ### Rest timer
 - A timer pill sits in the header: **play/pause**, countdown, and **cancel**.
 
-  <img src="docs/screenshots/timer-pill.jpg" width="420" alt="Timer pill in the header with a running countdown">
+  <img src="docs/screenshots/timer-pill.jpg" width="320" alt="Timer pill in the header with a running countdown">
 
 - Start it from the menu with a **preset** (defaults: 1:00, 1:30, 2:00, 3:00; add, remove or change them in Settings) or use **Custom...** for a one-off duration.
 
-  <img src="docs/screenshots/menu.jpg" width="200" alt="Menu with rest timer presets and Custom...">&nbsp;&nbsp;<img src="docs/screenshots/settings-timer.jpg" width="300" alt="Rest timer settings with presets and custom timer toggle">
+  <img src="docs/screenshots/menu.jpg" width="320" alt="Menu with rest timer presets and Custom...">&nbsp;&nbsp;<img src="docs/screenshots/settings-timer.jpg" width="320" alt="Rest timer settings with presets and custom timer toggle">
 
 - Scheduled through Android's alarm system, so it still fires with the screen off or the app in the background.
 - **Continuous vibration pulse** when it ends, until you dismiss it. Can be turned off.
 
 ### Progress chart
-<p align="center"><img src="docs/screenshots/progress-chart.jpg" width="280" alt="OSPOT progress chart"></p>
+<p align="center"><img src="docs/screenshots/progress-chart.jpg" width="320" alt="OSPOT progress chart"></p>
 
 - Plots your **top set per exercise over time** (heaviest weight, with reps as the tiebreaker).
 - **Pinch to zoom and pan** along the timeline. Axis labels and grid lines adapt to the zoom level.
 - **Select exercises by session** with checkboxes, or hit **Select All**.
 
-  <img src="docs/screenshots/chart-picker.jpg" width="420" alt="Exercise picker grouped by session">
+  <img src="docs/screenshots/chart-picker.jpg" width="320" alt="Exercise picker grouped by session">
 
 - **Tap a legend entry to highlight** one exercise and fade the rest.
 
