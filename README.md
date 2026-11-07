@@ -87,7 +87,7 @@ Each set is tagged so warmups don't pollute your real numbers, and each type has
 ### Progress chart
 <p align="center"><img src="docs/screenshots/progress-chart.jpg" width="320" alt="OSPOT progress chart"></p>
 
-- Plots your **top set per exercise over time** (heaviest weight, with reps as the tiebreaker).
+- Plots your **top set per exercise over time** (heaviest weight).
 - **Pinch to zoom and pan** along the timeline. Axis labels and grid lines adapt to the zoom level.
 - **Select exercises by session** with checkboxes, or hit **Select All**.
 
