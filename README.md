@@ -66,7 +66,7 @@ Each set is tagged so warmups don't pollute your real numbers, and each type has
 
   <img src="docs/screenshots/rir-toggles.jpg" width="320" alt="Settings toggles for RIR and RPE">&nbsp;&nbsp;<img src="docs/screenshots/rir-rpe-enabled.jpg" width="320" alt="Exercise card with RIR and RPE enabled">
 
-- **Configurable weight increment** (1.25, 2.5, 5, 10, ...) so the stepper matches the plates you actually have.
+- **Configurable weight increment** (1, 1.25, 2.5, 5, 10) so the stepper matches the plates you actually have.
 
   <img src="docs/screenshots/weight-increment.jpg" width="320" alt="Weight increment setting">
 
