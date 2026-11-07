@@ -36,7 +36,7 @@ Most workout apps come with accounts, feeds, ads and subscriptions. OSPOT is the
 
 - Every exercise is a collapsible card with its own sets. Use **Collapse All** from the menu to get a clean overview.
 
-  <img src="docs/screenshots/card-collapsed.jpg" width="270" alt="A collapsed exercise card">&nbsp;&nbsp;<img src="docs/screenshots/card-expanded.jpg" width="270" alt="The same exercise expanded">&nbsp;&nbsp;<img src="docs/screenshots/menu-top.jpg" width="270" alt="Menu with Collapse All">
+  <img src="docs/screenshots/card-collapsed.jpg" width="260" alt="A collapsed exercise card">&nbsp;&nbsp;<img src="docs/screenshots/card-expanded.jpg" width="260" alt="The same exercise expanded">&nbsp;&nbsp;<img src="docs/screenshots/menu-top.jpg" width="260" alt="Menu with Collapse All">
 
 - Each exercise has an optional **note**, shown by the note icon next to its name (it lights up when a note exists). Use it for cues, machine settings, tempo, or **units** if you want them (e.g. "lbs").
 
