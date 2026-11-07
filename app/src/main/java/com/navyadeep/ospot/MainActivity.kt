@@ -285,6 +285,15 @@ class MainActivity : ComponentActivity() {
                             val sessionsJson = prefs[SESSIONS_KEY] ?: "[]"
                             val exercisesJson = prefs[EXERCISES_KEY] ?: "{}"
                             
+                            val timerPresetsJson = prefs[TIMER_PRESETS_KEY] ?: ""
+                            val currentTimerPresets = if (timerPresetsJson.isNotEmpty()) {
+                                try {
+                                    Json.decodeFromString<List<Int>>(timerPresetsJson)
+                                } catch (e: Exception) {
+                                    listOf(60, 90, 120, 180)
+                                }
+                            } else listOf(60, 90, 120, 180)
+
                             val backup = WorkoutBackup(
                                 sessions = Json.decodeFromString(sessionsJson),
                                 sessionExercises = Json.decodeFromString(exercisesJson),
@@ -294,9 +303,9 @@ class MainActivity : ComponentActivity() {
                                 accentColor = prefs[ACCENT_COLOR_KEY] ?: 0xFFFFFFFFL,
                                 progressData = Json.decodeFromString(prefs[PROGRESS_DATA_KEY] ?: "{}"),
                                 lastProcessDate = prefs[LAST_PROCESS_DATE_KEY] ?: "",
-                                timerPresets = initialTimerPresets,
-                                allowCustomTimer = initialAllowCustomTimer,
-                                timerVibration = initialTimerVibration
+                                timerPresets = currentTimerPresets,
+                                allowCustomTimer = prefs[ALLOW_CUSTOM_TIMER_KEY] ?: true,
+                                timerVibration = prefs[TIMER_VIBRATION_KEY] ?: true
                             )
                             
                             val backupJson = Json.encodeToString(backup)
@@ -3744,6 +3753,133 @@ fun ProgressChartScreen(
                             }
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+                    HorizontalDivider(color = Color.Gray.copy(alpha = 0.15f))
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Text(
+                        text = "Exercise Specific Progress",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
+
+                    var selectedSingleExercise by remember { mutableStateOf<String?>(null) }
+                    var singleExerciseMenuExpanded by remember { mutableStateOf(false) }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Select Exercise",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color.White.copy(alpha = 0.9f)
+                        )
+
+                        Box {
+                            Row(
+                                modifier = Modifier
+                                    .height(36.dp)
+                                    .background(Color(0xFF1E1E1E), shape = RoundedCornerShape(8.dp))
+                                    .border(1.dp, Color.Gray.copy(alpha = 0.25f), RoundedCornerShape(8.dp))
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        singleExerciseMenuExpanded = !singleExerciseMenuExpanded
+                                    }
+                                    .padding(horizontal = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = selectedSingleExercise ?: "Select Exercise",
+                                    color = if (selectedSingleExercise == null) Color.Gray else Color.White,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Icon(
+                                    imageVector = if (singleExerciseMenuExpanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                                    contentDescription = "Select Exercise",
+                                    tint = Color.White.copy(alpha = 0.7f),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+
+                            DropdownMenu(
+                                expanded = singleExerciseMenuExpanded,
+                                onDismissRequest = { singleExerciseMenuExpanded = false },
+                                shape = RoundedCornerShape(12.dp),
+                                containerColor = Color.Transparent,
+                                modifier = Modifier
+                                    .width(200.dp)
+                                    .heightIn(max = 280.dp)
+                                    .background(
+                                        brush = Brush.verticalGradient(
+                                            colors = listOf(
+                                                Color(0xFF1E1E1E),
+                                                Color(0xFF161616)
+                                            )
+                                        ),
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    .border(1.dp, Color.Gray.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
+                            ) {
+                                allExerciseNames.forEach { exName ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = exName,
+                                                color = if (exName == selectedSingleExercise) accentColor else Color.White,
+                                                fontSize = 14.sp,
+                                                fontWeight = if (exName == selectedSingleExercise) FontWeight.Bold else FontWeight.Normal
+                                            )
+                                        },
+                                        onClick = {
+                                            selectedSingleExercise = exName
+                                            singleExerciseMenuExpanded = false
+                                        },
+                                        modifier = Modifier.height(40.dp).padding(horizontal = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    val currentExName = selectedSingleExercise
+                    val singleExData = if (currentExName != null) progressData[currentExName] ?: emptyMap() else emptyMap()
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(280.dp)
+                            .background(Color(0xFF1E1E1E), RoundedCornerShape(12.dp))
+                            .border(1.dp, Color.Gray.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
+                            .padding(16.dp)
+                    ) {
+                        if (currentExName == null) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text("Select an exercise to display progress", color = Color.Gray, fontSize = 12.sp)
+                            }
+                        } else if (singleExData.isEmpty()) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text("No log entries for $currentExName", color = Color.Gray, fontSize = 12.sp)
+                            }
+                        } else {
+                            SingleExerciseProgressChart(
+                                exerciseName = currentExName,
+                                exerciseData = singleExData,
+                                accentColor = accentColor
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -3793,6 +3929,8 @@ fun ProgressLineChart(
         val paddingTop = 20f
         val paddingBottom = 60f
 
+        val plotMarginX = 20f
+
         val minWeight = 0.0
         val maxWeight = allProgressData.values
             .mapNotNull { exerciseMap -> exerciseMap.maxByOrNull { it.key }?.value?.weight }
@@ -3802,16 +3940,17 @@ fun ProgressLineChart(
 
         val chartWidth = width - paddingLeft - paddingRight
         val chartHeight = height - paddingTop - paddingBottom
+        val usableWidth = chartWidth - (2 * plotMarginX)
 
         // Apply Zoom and Pan to the coordinate system
-        val totalXWidth = chartWidth * scaleX
+        val totalXWidth = usableWidth * scaleX
         val totalYHeight = chartHeight * scaleY
         
         // Boundaries for offset to keep chart in view
-        offsetX = offsetX.coerceIn(-(totalXWidth - chartWidth), 0f)
+        offsetX = offsetX.coerceIn(-(totalXWidth - usableWidth), 0f)
         offsetY = offsetY.coerceIn(0f, totalYHeight - chartHeight)
 
-        val xStep = if (allDates.size > 1) totalXWidth / (allDates.size - 1) else totalXWidth
+        val xStep = if (allDates.size > 1) totalXWidth / (allDates.size - 1) else 0f
         
         val labelPaint = android.graphics.Paint().apply {
             color = android.graphics.Color.GRAY
@@ -3819,17 +3958,8 @@ fun ProgressLineChart(
             textAlign = android.graphics.Paint.Align.RIGHT
         }
         
-        val gridSteps = (10 * scaleY).toInt().coerceIn(5, 50)
-        // Use a cleaner increment based on range and zoom
-        val weightPerStep = if (scaleY > 2f) {
-            // Finer increments when zoomed in
-            val ideal = weightRange / gridSteps
-            if (ideal < 0.5) 0.5 else if (ideal < 1.0) 1.0 else if (ideal < 2.5) 2.5 else 5.0
-        } else {
-            // Clean step for non-zoomed view (e.g., nearest 5, 10, or 20)
-            val step = weightRange / 10.0
-            if (step < 2.5) 2.5 else if (step < 5.0) 5.0 else if (step < 10.0) 10.0 else 20.0
-        }
+        val weightPerStep = 5.0
+        val gridSteps = (maxWeight / weightPerStep).toInt().coerceAtLeast(1)
         
         // Calculate visible weight range for labels
         val drawnLabels = mutableSetOf<String>()
@@ -3839,7 +3969,7 @@ fun ProgressLineChart(
         minMaxWeights.forEach { weightVal ->
             val y = paddingTop + chartHeight - (((weightVal - minWeight) / weightRange * chartHeight) * scaleY).toFloat() + offsetY
             if (y in paddingTop..(height - paddingBottom + 30f)) {
-                val labelText = String.format(Locale.getDefault(), "%.1f", weightVal)
+                val labelText = if (weightVal % 1.0 == 0.0) weightVal.toInt().toString() else String.format(Locale.getDefault(), "%.1f", weightVal)
                 if (!drawnLabels.contains(labelText)) {
                     drawContext.canvas.nativeCanvas.drawText(
                         labelText,
@@ -3855,7 +3985,7 @@ fun ProgressLineChart(
         for (i in -50..(gridSteps + 100)) { // Extended range for panning
             val weightValRaw = minWeight + (i * weightPerStep)
             // Round to nearest weightPerStep to ensure logical values
-            val weightVal = (Math.round(weightValRaw / weightPerStep) * weightPerStep)
+            val weightVal = (kotlin.math.round(weightValRaw / weightPerStep) * weightPerStep)
             if (weightVal < 0.0) continue
             
             // Ensure we only draw labels that make sense for the current viewport
@@ -3869,11 +3999,11 @@ fun ProgressLineChart(
                     strokeWidth = 1f
                 )
                 
-                val labelText = String.format(Locale.getDefault(), "%.1f", weightVal)
+                val labelText = if (weightVal % 1.0 == 0.0) weightVal.toInt().toString() else String.format(Locale.getDefault(), "%.1f", weightVal)
                 // Avoid overlapping labels by checking proximity
                 val isCloseToAny = drawnLabels.any { existing ->
                     val existingVal = existing.toDoubleOrNull() ?: -1.0
-                    Math.abs(existingVal - weightVal) < (weightPerStep * 0.5)
+                    kotlin.math.abs(existingVal - weightVal) < (weightPerStep * 0.4)
                 }
 
                 if (!isCloseToAny) {
@@ -3903,7 +4033,11 @@ fun ProgressLineChart(
         } else 1
 
         allDates.forEachIndexed { index, dateStr ->
-            val x = paddingLeft + index * xStep + offsetX
+            val x = if (allDates.size > 1) {
+                paddingLeft + plotMarginX + index * xStep + offsetX
+            } else {
+                paddingLeft + chartWidth / 2f + offsetX
+            }
 
             if (x in (paddingLeft - 20f)..(width - paddingRight + 20f)) {
                 val isMajorStep = index % labelFrequency == 0
@@ -3912,7 +4046,7 @@ fun ProgressLineChart(
                 var shouldDrawText = isMajorStep
                 if (isLast && index > 0 && !isMajorStep) {
                     val lastMajorIndex = (index / labelFrequency) * labelFrequency
-                    val prevX = paddingLeft + lastMajorIndex * xStep + offsetX
+                    val prevX = paddingLeft + plotMarginX + lastMajorIndex * xStep + offsetX
                     if (x - prevX > minSpacePerLabel * 0.8f) {
                         shouldDrawText = true
                     }
@@ -3965,7 +4099,11 @@ fun ProgressLineChart(
             allDates.forEachIndexed { dateIndex, dateStr ->
                 val progress = exerciseData[dateStr]
                 if (progress != null) {
-                    val x = paddingLeft + dateIndex * xStep + offsetX
+                    val x = if (allDates.size > 1) {
+                        paddingLeft + plotMarginX + dateIndex * xStep + offsetX
+                    } else {
+                        paddingLeft + chartWidth / 2f + offsetX
+                    }
                     val y = paddingTop + chartHeight - (((progress.weight - minWeight) / weightRange * chartHeight) * scaleY).toFloat() + offsetY
                     
                     if (firstPoint) {
@@ -3985,6 +4123,279 @@ fun ProgressLineChart(
                 color = color,
                 style = Stroke(width = 4f, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round)
             )
+        }
+
+        drawContext.canvas.restore()
+    }
+}
+
+@Composable
+fun SingleExerciseProgressChart(
+    exerciseName: String,
+    exerciseData: Map<String, DayProgress>,
+    accentColor: Color
+) {
+    val allDates = remember(exerciseData) { exerciseData.keys.sorted() }
+    if (allDates.isEmpty()) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("No log entries for $exerciseName", color = Color.Gray, fontSize = 13.sp)
+        }
+        return
+    }
+
+    // Transform State
+    var scaleX by remember { mutableFloatStateOf(1f) }
+    var scaleY by remember { mutableFloatStateOf(1f) }
+    var offsetX by remember { mutableFloatStateOf(0f) }
+    var offsetY by remember { mutableFloatStateOf(0f) }
+
+    val state = rememberTransformableState { zoomChange, panChange, _ ->
+        scaleX = (scaleX * zoomChange).coerceIn(1f, 10f)
+        offsetX += panChange.x
+    }
+
+    Canvas(
+        modifier = Modifier
+            .fillMaxSize()
+            .transformable(state = state)
+            .nestedScroll(remember {
+                object : NestedScrollConnection {
+                    override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                        return Offset(0f, available.y)
+                    }
+                }
+            })
+    ) {
+        val width = size.width
+        val height = size.height
+        val paddingLeft = 60f
+        val paddingRight = 20f
+        val paddingTop = 20f
+        val paddingBottom = 60f
+
+        val plotMarginX = 20f
+
+        val exerciseWeights = exerciseData.values.map { it.weight }
+        val minExerciseWeight = exerciseWeights.minOrNull() ?: 0.0
+        val maxExerciseWeight = exerciseWeights.maxOrNull() ?: 100.0
+
+        val minWeight = (minExerciseWeight - 10.0).coerceAtLeast(0.0)
+        val maxWeight = (maxExerciseWeight + 10.0).coerceAtLeast(minWeight + 10.0)
+        val weightRange = (maxWeight - minWeight).coerceAtLeast(1.0)
+
+        val chartWidth = width - paddingLeft - paddingRight
+        val chartHeight = height - paddingTop - paddingBottom
+        val usableWidth = chartWidth - (2 * plotMarginX)
+
+        val totalXWidth = usableWidth * scaleX
+        val totalYHeight = chartHeight * scaleY
+        
+        offsetX = offsetX.coerceIn(-(totalXWidth - usableWidth), 0f)
+        offsetY = offsetY.coerceIn(0f, totalYHeight - chartHeight)
+
+        val xStep = if (allDates.size > 1) totalXWidth / (allDates.size - 1) else 0f
+        
+        val labelPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.GRAY
+            textSize = 24f
+            textAlign = android.graphics.Paint.Align.RIGHT
+        }
+
+        val weightPerStep = 5.0
+        val gridSteps = ((maxWeight - minWeight) / weightPerStep).toInt().coerceAtLeast(1)
+        
+        val drawnLabels = mutableSetOf<String>()
+        val minMaxWeights = listOf(minWeight, maxWeight)
+        minMaxWeights.forEach { weightVal ->
+            val y = paddingTop + chartHeight - (((weightVal - minWeight) / weightRange * chartHeight) * scaleY).toFloat() + offsetY
+            if (y in paddingTop..(height - paddingBottom + 30f)) {
+                val labelText = if (weightVal % 1.0 == 0.0) weightVal.toInt().toString() else String.format(Locale.getDefault(), "%.1f", weightVal)
+                if (!drawnLabels.contains(labelText)) {
+                    drawContext.canvas.nativeCanvas.drawText(
+                        labelText,
+                        paddingLeft - 10f,
+                        y + 8f,
+                        labelPaint
+                    )
+                    drawnLabels.add(labelText)
+                }
+            }
+        }
+
+        for (i in -50..(gridSteps + 100)) {
+            val weightValRaw = minWeight + (i * weightPerStep)
+            val weightVal = (kotlin.math.round(weightValRaw / weightPerStep) * weightPerStep)
+            if (weightVal < 0.0) continue
+            
+            val y = paddingTop + chartHeight - (((weightVal - minWeight) / weightRange * chartHeight) * scaleY).toFloat() + offsetY
+            if (y in paddingTop..(height - paddingBottom + 30f)) {
+                drawLine(
+                    color = Color.Gray.copy(alpha = 0.15f),
+                    start = Offset(paddingLeft, y),
+                    end = Offset(width - paddingRight, y),
+                    strokeWidth = 1f
+                )
+                
+                val labelText = if (weightVal % 1.0 == 0.0) weightVal.toInt().toString() else String.format(Locale.getDefault(), "%.1f", weightVal)
+                val isCloseToAny = drawnLabels.any { existing ->
+                    val existingVal = existing.toDoubleOrNull() ?: -1.0
+                    kotlin.math.abs(existingVal - weightVal) < (weightPerStep * 0.4)
+                }
+
+                if (!isCloseToAny) {
+                    drawContext.canvas.nativeCanvas.drawText(
+                        labelText,
+                        paddingLeft - 10f,
+                        y + 8f,
+                        labelPaint
+                    )
+                    drawnLabels.add(labelText)
+                }
+            }
+        }
+
+        // X-axis labels (Dates)
+        val xLabelPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.GRAY
+            textSize = 20f
+            textAlign = android.graphics.Paint.Align.CENTER
+        }
+        
+        val minSpacePerLabel = 100f
+        val labelFrequency = if (xStep > 0f) {
+            (minSpacePerLabel / xStep).toInt().coerceAtLeast(1)
+        } else 1
+
+        allDates.forEachIndexed { index, dateStr ->
+            val x = if (allDates.size > 1) {
+                paddingLeft + plotMarginX + index * xStep + offsetX
+            } else {
+                paddingLeft + chartWidth / 2f + offsetX
+            }
+
+            if (x in (paddingLeft - 20f)..(width - paddingRight + 20f)) {
+                val isMajorStep = index % labelFrequency == 0
+                val isLast = index == allDates.size - 1
+
+                var shouldDrawText = isMajorStep
+                if (isLast && index > 0 && !isMajorStep) {
+                    val lastMajorIndex = (index / labelFrequency) * labelFrequency
+                    val prevX = paddingLeft + plotMarginX + lastMajorIndex * xStep + offsetX
+                    if (x - prevX > minSpacePerLabel * 0.8f) {
+                        shouldDrawText = true
+                    }
+                }
+
+                if (shouldDrawText || allDates.size == 1) {
+                    val displayDate = try {
+                        val parts = dateStr.split("-")
+                        if (parts.size >= 3) "${parts[1]}/${parts[2]}" else dateStr
+                    } catch (e: Exception) {
+                        dateStr
+                    }
+
+                    drawContext.canvas.nativeCanvas.drawText(
+                        displayDate,
+                        x,
+                        height - 10f,
+                        xLabelPaint
+                    )
+                }
+
+                if (isMajorStep || isLast || allDates.size == 1) {
+                    drawLine(
+                        color = Color.Gray.copy(alpha = 0.1f),
+                        start = Offset(x, paddingTop),
+                        end = Offset(x, height - paddingBottom),
+                        strokeWidth = 1f
+                    )
+                }
+            }
+        }
+
+        // Clip plot area
+        drawContext.canvas.save()
+        drawContext.canvas.nativeCanvas.clipRect(
+            paddingLeft, paddingTop - 35f, width - paddingRight, height - paddingBottom
+        )
+
+        val repLabelPaint = android.graphics.Paint().apply {
+            color = android.graphics.Color.WHITE
+            textSize = 20f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            textAlign = android.graphics.Paint.Align.CENTER
+        }
+
+        val path = Path()
+        var firstPoint = true
+        val pointsToDraw = mutableListOf<Triple<Float, Float, DayProgress>>()
+
+        allDates.forEachIndexed { dateIndex, dateStr ->
+            val progress = exerciseData[dateStr]
+            if (progress != null) {
+                val x = if (allDates.size > 1) {
+                    paddingLeft + plotMarginX + dateIndex * xStep + offsetX
+                } else {
+                    paddingLeft + chartWidth / 2f + offsetX
+                }
+                val y = paddingTop + chartHeight - (((progress.weight - minWeight) / weightRange * chartHeight) * scaleY).toFloat() + offsetY
+                
+                if (firstPoint) {
+                    path.moveTo(x, y)
+                    firstPoint = false
+                } else {
+                    path.lineTo(x, y)
+                }
+                pointsToDraw.add(Triple(x, y, progress))
+            }
+        }
+
+        if (allDates.size > 1) {
+            drawPath(
+                path = path,
+                color = accentColor,
+                style = Stroke(width = 4f, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round)
+            )
+        }
+
+        // Pass 1: Draw small node circles for non-rep-counter points
+        pointsToDraw.forEachIndexed { index, (x, y, progress) ->
+            val currentReps = progress.reps
+            val isDifferentFromPrevious = (index == 0) ||
+                    (currentReps != pointsToDraw[index - 1].third.reps) ||
+                    (progress.weight != pointsToDraw[index - 1].third.weight)
+
+            if (!isDifferentFromPrevious) {
+                drawCircle(color = accentColor, radius = 6f, center = Offset(x, y))
+                drawCircle(color = Color(0xFF1E1E1E), radius = 3f, center = Offset(x, y))
+            }
+        }
+
+        // Pass 2: Draw rep counter badges on top of everything
+        pointsToDraw.forEachIndexed { index, (x, y, progress) ->
+            val currentReps = progress.reps
+            val isDifferentFromPrevious = (index == 0) ||
+                    (currentReps != pointsToDraw[index - 1].third.reps) ||
+                    (progress.weight != pointsToDraw[index - 1].third.weight)
+
+            if (isDifferentFromPrevious) {
+                val repText = currentReps.toString()
+                val badgeRadius = 14f
+
+                drawCircle(color = Color(0xFF1E1E1E), radius = badgeRadius, center = Offset(x, y))
+                drawCircle(color = accentColor, radius = badgeRadius, center = Offset(x, y), style = Stroke(width = 2f))
+
+                val textY = y - ((repLabelPaint.descent() + repLabelPaint.ascent()) / 2f)
+                drawContext.canvas.nativeCanvas.drawText(
+                    repText,
+                    x,
+                    textY,
+                    repLabelPaint
+                )
+            }
         }
 
         drawContext.canvas.restore()
