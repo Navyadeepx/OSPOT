@@ -36,13 +36,13 @@ Most workout apps come with accounts, feeds, ads and subscriptions. OSPOT is the
 
 - Every exercise is a collapsible card with its own sets. Use **Collapse All** from the menu to get a clean overview.
 
-  <img src="docs/screenshots/card-collapsed.jpg" width="320" alt="A collapsed exercise card">&nbsp;&nbsp;<img src="docs/screenshots/card-expanded.jpg" width="320" alt="The same exercise expanded">&nbsp;&nbsp;<img src="docs/screenshots/menu-top.jpg" width="320" alt="Menu with Collapse All">
+  <img src="docs/screenshots/card-collapsed.jpg" width="270" alt="A collapsed exercise card">&nbsp;&nbsp;<img src="docs/screenshots/card-expanded.jpg" width="270" alt="The same exercise expanded">&nbsp;&nbsp;<img src="docs/screenshots/menu-top.jpg" width="270" alt="Menu with Collapse All">
 
 - Each exercise has an optional **note**, shown by the note icon next to its name (it lights up when a note exists). Use it for cues, machine settings, tempo, or **units** if you want them (e.g. "lbs").
 
-  <img src="docs/screenshots/note-with-closed.jpg" width="260" alt="Exercise with a note, note closed">&nbsp;&nbsp;<img src="docs/screenshots/note-with-open.jpg" width="260" alt="Exercise with a note, note open">
+  <img src="docs/screenshots/note-with-closed.jpg" width="320" alt="Exercise with a note, note closed">&nbsp;&nbsp;<img src="docs/screenshots/note-with-open.jpg" width="320" alt="Exercise with a note, note open">
   <br><br>
-  <img src="docs/screenshots/note-none-closed.jpg" width="260" alt="Exercise without a note, note closed">&nbsp;&nbsp;<img src="docs/screenshots/note-none-open.jpg" width="260" alt="Exercise without a note, note open for entering text">
+  <img src="docs/screenshots/note-none-closed.jpg" width="320" alt="Exercise without a note, note closed">&nbsp;&nbsp;<img src="docs/screenshots/note-none-open.jpg" width="320" alt="Exercise without a note, note open for entering text">
 
 ### Three kinds of sets
 Each set is tagged so warmups don't pollute your real numbers, and each type has its own marker:
@@ -54,7 +54,7 @@ Each set is tagged so warmups don't pollute your real numbers, and each type has
 | 🔺 Triangle | **Working** | Full-intensity set, close to failure (0-2 RIR) |
 
 <p align="center">
-  <img src="docs/screenshots/set-types.jpg" width="250" alt="An exercise with a warmup, a primer and a working set">&nbsp;&nbsp;<img src="docs/screenshots/empty-state.jpg" width="250" alt="First-launch screen with no sessions, showing the tooltip card">&nbsp;&nbsp;<img src="docs/screenshots/add-set-menu.jpg" width="250" alt="Add set dropdown for choosing the set type">
+  <img src="docs/screenshots/set-types.jpg" width="260" alt="An exercise with a warmup, a primer and a working set">&nbsp;&nbsp;<img src="docs/screenshots/empty-state.jpg" width="260" alt="First-launch screen with no sessions, showing the tooltip card">&nbsp;&nbsp;<img src="docs/screenshots/add-set-menu.jpg" width="260" alt="Add set dropdown for choosing the set type">
 </p>
 
 ### Weight, reps, RIR and RPE
