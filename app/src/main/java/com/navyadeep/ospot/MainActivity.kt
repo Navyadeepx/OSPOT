@@ -3931,11 +3931,13 @@ fun ProgressLineChart(
 
         val plotMarginX = 20f
 
-        val minWeight = 0.0
-        val maxWeight = allProgressData.values
+        val maxExWeight = allProgressData.values
             .mapNotNull { exerciseMap -> exerciseMap.maxByOrNull { it.key }?.value?.weight }
             .maxOfOrNull { it }
             ?.let { if (it <= 0.0) 100.0 else it } ?: 100.0
+
+        val minWeight = 0.0
+        val maxWeight = (kotlin.math.ceil(maxExWeight / 5.0) * 5.0).coerceAtLeast(10.0)
         val weightRange = (maxWeight - minWeight).coerceAtLeast(1.0)
 
         val chartWidth = width - paddingLeft - paddingRight
@@ -3954,44 +3956,18 @@ fun ProgressLineChart(
         
         val labelPaint = android.graphics.Paint().apply {
             color = android.graphics.Color.GRAY
-            textSize = 24f
+            textSize = 22f
             textAlign = android.graphics.Paint.Align.RIGHT
         }
         
         val weightPerStep = 5.0
-        val gridSteps = (maxWeight / weightPerStep).toInt().coerceAtLeast(1)
-        
-        // Calculate visible weight range for labels
-        val drawnLabels = mutableSetOf<String>()
-        
-        // Draw Min and Max labels first to ensure they are always present
-        val minMaxWeights = listOf(minWeight, maxWeight)
-        minMaxWeights.forEach { weightVal ->
-            val y = paddingTop + chartHeight - (((weightVal - minWeight) / weightRange * chartHeight) * scaleY).toFloat() + offsetY
-            if (y in paddingTop..(height - paddingBottom + 30f)) {
-                val labelText = if (weightVal % 1.0 == 0.0) weightVal.toInt().toString() else String.format(Locale.getDefault(), "%.1f", weightVal)
-                if (!drawnLabels.contains(labelText)) {
-                    drawContext.canvas.nativeCanvas.drawText(
-                        labelText,
-                        paddingLeft - 10f,
-                        y + 8f,
-                        labelPaint
-                    )
-                    drawnLabels.add(labelText)
-                }
-            }
-        }
+        var lastLabelY = Float.MAX_VALUE
 
-        for (i in -50..(gridSteps + 100)) { // Extended range for panning
-            val weightValRaw = minWeight + (i * weightPerStep)
-            // Round to nearest weightPerStep to ensure logical values
-            val weightVal = (kotlin.math.round(weightValRaw / weightPerStep) * weightPerStep)
-            if (weightVal < 0.0) continue
+        var currentWeightVal = minWeight
+        while (currentWeightVal <= maxWeight + 0.1) {
+            val y = paddingTop + chartHeight - (((currentWeightVal - minWeight) / weightRange * chartHeight) * scaleY).toFloat() + offsetY
             
-            // Ensure we only draw labels that make sense for the current viewport
-            val y = paddingTop + chartHeight - (((weightVal - minWeight) / weightRange * chartHeight) * scaleY).toFloat() + offsetY
-            
-            if (y in paddingTop..(height - paddingBottom + 30f)) {
+            if (y in (paddingTop - 10f)..(height - paddingBottom + 10f)) {
                 drawLine(
                     color = Color.Gray.copy(alpha = 0.15f),
                     start = Offset(paddingLeft, y),
@@ -3999,23 +3975,18 @@ fun ProgressLineChart(
                     strokeWidth = 1f
                 )
                 
-                val labelText = if (weightVal % 1.0 == 0.0) weightVal.toInt().toString() else String.format(Locale.getDefault(), "%.1f", weightVal)
-                // Avoid overlapping labels by checking proximity
-                val isCloseToAny = drawnLabels.any { existing ->
-                    val existingVal = existing.toDoubleOrNull() ?: -1.0
-                    kotlin.math.abs(existingVal - weightVal) < (weightPerStep * 0.4)
-                }
-
-                if (!isCloseToAny) {
+                if (kotlin.math.abs(lastLabelY - y) >= 20f || currentWeightVal == minWeight || currentWeightVal >= maxWeight - 0.1) {
+                    val labelText = if (currentWeightVal % 1.0 == 0.0) currentWeightVal.toInt().toString() else String.format(Locale.getDefault(), "%.1f", currentWeightVal)
                     drawContext.canvas.nativeCanvas.drawText(
                         labelText,
                         paddingLeft - 10f,
                         y + 8f,
                         labelPaint
                     )
-                    drawnLabels.add(labelText)
+                    lastLabelY = y
                 }
             }
+            currentWeightVal += weightPerStep
         }
 
         // X-axis labels (Dates)
@@ -4179,11 +4150,14 @@ fun SingleExerciseProgressChart(
         val plotMarginX = 20f
 
         val exerciseWeights = exerciseData.values.map { it.weight }
-        val minExerciseWeight = exerciseWeights.minOrNull() ?: 0.0
-        val maxExerciseWeight = exerciseWeights.maxOrNull() ?: 100.0
+        val minExWeight = exerciseWeights.minOrNull() ?: 0.0
+        val maxExWeight = exerciseWeights.maxOrNull() ?: 100.0
 
-        val minWeight = (minExerciseWeight - 10.0).coerceAtLeast(0.0)
-        val maxWeight = (maxExerciseWeight + 10.0).coerceAtLeast(minWeight + 10.0)
+        val rawMin = (minExWeight - 10.0).coerceAtLeast(0.0)
+        val rawMax = (maxExWeight + 10.0).coerceAtLeast(rawMin + 10.0)
+
+        val minWeight = (kotlin.math.floor(rawMin / 5.0) * 5.0).coerceAtLeast(0.0)
+        val maxWeight = (kotlin.math.ceil(rawMax / 5.0) * 5.0).coerceAtLeast(minWeight + 10.0)
         val weightRange = (maxWeight - minWeight).coerceAtLeast(1.0)
 
         val chartWidth = width - paddingLeft - paddingRight
@@ -4200,38 +4174,18 @@ fun SingleExerciseProgressChart(
         
         val labelPaint = android.graphics.Paint().apply {
             color = android.graphics.Color.GRAY
-            textSize = 24f
+            textSize = 22f
             textAlign = android.graphics.Paint.Align.RIGHT
         }
 
         val weightPerStep = 5.0
-        val gridSteps = ((maxWeight - minWeight) / weightPerStep).toInt().coerceAtLeast(1)
-        
-        val drawnLabels = mutableSetOf<String>()
-        val minMaxWeights = listOf(minWeight, maxWeight)
-        minMaxWeights.forEach { weightVal ->
-            val y = paddingTop + chartHeight - (((weightVal - minWeight) / weightRange * chartHeight) * scaleY).toFloat() + offsetY
-            if (y in paddingTop..(height - paddingBottom + 30f)) {
-                val labelText = if (weightVal % 1.0 == 0.0) weightVal.toInt().toString() else String.format(Locale.getDefault(), "%.1f", weightVal)
-                if (!drawnLabels.contains(labelText)) {
-                    drawContext.canvas.nativeCanvas.drawText(
-                        labelText,
-                        paddingLeft - 10f,
-                        y + 8f,
-                        labelPaint
-                    )
-                    drawnLabels.add(labelText)
-                }
-            }
-        }
+        var lastLabelY = Float.MAX_VALUE
 
-        for (i in -50..(gridSteps + 100)) {
-            val weightValRaw = minWeight + (i * weightPerStep)
-            val weightVal = (kotlin.math.round(weightValRaw / weightPerStep) * weightPerStep)
-            if (weightVal < 0.0) continue
+        var currentWeightVal = minWeight
+        while (currentWeightVal <= maxWeight + 0.1) {
+            val y = paddingTop + chartHeight - (((currentWeightVal - minWeight) / weightRange * chartHeight) * scaleY).toFloat() + offsetY
             
-            val y = paddingTop + chartHeight - (((weightVal - minWeight) / weightRange * chartHeight) * scaleY).toFloat() + offsetY
-            if (y in paddingTop..(height - paddingBottom + 30f)) {
+            if (y in (paddingTop - 10f)..(height - paddingBottom + 10f)) {
                 drawLine(
                     color = Color.Gray.copy(alpha = 0.15f),
                     start = Offset(paddingLeft, y),
@@ -4239,22 +4193,18 @@ fun SingleExerciseProgressChart(
                     strokeWidth = 1f
                 )
                 
-                val labelText = if (weightVal % 1.0 == 0.0) weightVal.toInt().toString() else String.format(Locale.getDefault(), "%.1f", weightVal)
-                val isCloseToAny = drawnLabels.any { existing ->
-                    val existingVal = existing.toDoubleOrNull() ?: -1.0
-                    kotlin.math.abs(existingVal - weightVal) < (weightPerStep * 0.4)
-                }
-
-                if (!isCloseToAny) {
+                if (kotlin.math.abs(lastLabelY - y) >= 20f || currentWeightVal == minWeight || currentWeightVal >= maxWeight - 0.1) {
+                    val labelText = if (currentWeightVal % 1.0 == 0.0) currentWeightVal.toInt().toString() else String.format(Locale.getDefault(), "%.1f", currentWeightVal)
                     drawContext.canvas.nativeCanvas.drawText(
                         labelText,
                         paddingLeft - 10f,
                         y + 8f,
                         labelPaint
                     )
-                    drawnLabels.add(labelText)
+                    lastLabelY = y
                 }
             }
+            currentWeightVal += weightPerStep
         }
 
         // X-axis labels (Dates)
