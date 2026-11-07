@@ -12,7 +12,7 @@ A fast, minimal, fully offline workout logger for Android, built around one idea
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
 ![Version](https://img.shields.io/badge/version-2.1.0-orange)
 
-<img src="docs/screenshots/logging.jpg" width="280" alt="OSPOT logging screen with a running rest timer">
+<img src="docs/screenshots/logging.jpg" width="320" alt="OSPOT logging screen with a running rest timer">
 
 </div>
 
@@ -32,11 +32,11 @@ Most workout apps come with accounts, feeds, ads and subscriptions. OSPOT is the
 ### Session-based logging
 - Create your own sessions (Upper, Lower, Push, Pull, Legs, whatever fits your split) and switch between them from the bottom bar.
 
-  <img src="docs/screenshots/session-bar.jpg" width="420" alt="Session switcher in the bottom bar">
+  <img src="docs/screenshots/session-bar.jpg" width="320" alt="Session switcher in the bottom bar">
 
 - Every exercise is a collapsible card with its own sets. Use **Collapse All** from the menu to get a clean overview.
 
-  <img src="docs/screenshots/card-collapsed.jpg" width="260" alt="A collapsed exercise card">&nbsp;&nbsp;<img src="docs/screenshots/card-expanded.jpg" width="260" alt="The same exercise expanded">&nbsp;&nbsp;<img src="docs/screenshots/menu-top.jpg" width="190" alt="Menu with Collapse All">
+  <img src="docs/screenshots/card-collapsed.jpg" width="320" alt="A collapsed exercise card">&nbsp;&nbsp;<img src="docs/screenshots/card-expanded.jpg" width="320" alt="The same exercise expanded">&nbsp;&nbsp;<img src="docs/screenshots/menu-top.jpg" width="320" alt="Menu with Collapse All">
 
 - Each exercise has an optional **note**, shown by the note icon next to its name (it lights up when a note exists). Use it for cues, machine settings, tempo, or **units** if you want them (e.g. "lbs").
 
@@ -60,7 +60,7 @@ Each set is tagged so warmups don't pollute your real numbers, and each type has
 ### Weight, reps, RIR and RPE
 - Tap a value to type it, or use the green/red **steppers** to nudge it up and down.
 
-  <img src="docs/screenshots/steppers.jpg" width="380" alt="Weight and reps steppers on an exercise card">
+  <img src="docs/screenshots/steppers.jpg" height="320" alt="Weight and reps steppers on an exercise card">
 
 - **RIR** and **RPE** are optional. Turn either on in Settings.
 
