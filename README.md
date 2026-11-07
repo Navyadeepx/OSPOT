@@ -120,6 +120,26 @@ There is no "finish workout" button. The app snapshots your top set for each exe
 
 - Plain JSON, so it is easy to inspect, back up, edit or script against.
 
+## What OSPOT is (and isn't)
+
+OSPOT is a dedicated gym logging app. It is not a social fitness platform, a nutrition tracker or a personal trainer. It is for lifters who already know what to do in the gym and just need a place to log it, which includes two kinds of people:
+
+- **Experienced or advanced lifters,** who have years of training behind them and know how to progress without help.
+- **Science-based lifters,** who may not be advanced, but understand the principles of training well enough that they don't need an app to coach them.
+
+That focus comes with trade-offs, and most of them are deliberate:
+
+| Not included | Why |
+|---|---|
+| **Exercise library or demo videos** | By design. You type your own exercises, so you are never confined to a predefined list. |
+| **Suggestions for the next weight or reps** | It shouldn't tell you. OSPOT shows your history and you decide when to progress, because you know better than an app when it's time to go up. |
+| **Browsable workout history log** | A complexity trade-off. The chart shows your top set over time, and the exported JSON holds the daily history for every exercise if you want the raw data. |
+| **Volume, estimated 1RM or other analytics** | By design. Volume (weight x reps, or set count) isn't a useful thing to track here, and set counts are hard to derive anyway since exercises aren't categorised by name. A 1RM estimate is an arbitrary formula that not everyone needs, so the chart plots the heaviest weight and nothing else. |
+| **Routines or programs, supersets, plate calculator** | By design, to keep the app flexible and simple. |
+| **Cloud sync or automatic backup** | By design. Manual JSON export and import is there when you want a backup. |
+| **iOS, wearable or widget support** | A widget is on my mind. iOS and wearables won't happen any time soon, since I don't own either. |
+| **Play Store release** | I'm a student and can't afford the developer fee, so install the APK from [Releases](https://github.com/Navyadeepx/OSPOT/releases). It is also a single-developer project, so updates depend on one person. |
+
 ## Getting started
 
 ### Install
