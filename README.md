@@ -10,7 +10,7 @@ A fast, minimal, fully offline workout logger for Android, built around one idea
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.2-7F52FF?logo=kotlin&logoColor=white)
 ![Jetpack Compose](https://img.shields.io/badge/UI-Jetpack%20Compose-4285F4?logo=jetpackcompose&logoColor=white)
 ![License](https://img.shields.io/badge/license-AGPL--3.0-blue)
-![Version](https://img.shields.io/badge/version-2.1.0-orange)
+![Version](https://img.shields.io/badge/version-2.2.0-orange)
 
 <img src="docs/screenshots/logging.jpg" width="320" alt="OSPOT logging screen with a running rest timer">
 
@@ -87,7 +87,7 @@ Each set is tagged so warmups don't pollute your real numbers, and each type has
 ### Progress chart
 <p align="center"><img src="docs/screenshots/progress-chart.jpg" width="320" alt="OSPOT progress chart"></p>
 
-- Plots your **top set per exercise over time** (heaviest weight).
+- The main chart plots your **top set per exercise over time** (heaviest weight).
 - **Pinch to zoom and pan** along the timeline. Axis labels and grid lines adapt to the zoom level.
 - **Select exercises by session** with checkboxes, or hit **Select All**.
 
@@ -99,6 +99,14 @@ Each set is tagged so warmups don't pollute your real numbers, and each type has
 
 - Line colors are assigned automatically so that exercises with similar numbers get **visually distinct colors**.
 - **Exercises you delete keep their history.** They move into a "Removed" group in the picker, so old progress is never lost.
+- **History follows the exercise name.** If you rename an exercise (even just its capitalization), the old history moves to the "Removed" group and the new name starts a fresh one. Exercises with the same name in different sessions share one history.
+- **Exercise Specific Progress** is a separate chart under the main one. Pick a single exercise from the dropdown to see its weight over time with the **reps shown on the data points**, so progress that doesn't move the weight (like going from 7 to 8 reps) is visible.
+
+  <img src="docs/screenshots/exercise-specific-chart.jpg" width="320" alt="Exercise Specific Progress chart for flat press with reps shown on the data points">
+
+- A rep count is shown **only when the reps or the weight change** from the previous point, so long runs of identical sessions stay uncluttered. A point with no label has the same weight and reps as the one before it.
+- The reps shown belong to your **top set** for that day: the heaviest weight, and if several sets share it, the one with the most reps.
+- The weight axis **fits the exercise's own range**, so the line fills the chart instead of hugging the top. Pinch to zoom works here too, and labels on points that sit very close together stack with the later ones on top until you zoom in.
 
 ### Automatic progress tracking
 There is no "finish workout" button. The app snapshots your top set for each exercise **once per day** when you open it. If you skip days, the gap is filled with your last values so the chart stays continuous. You can also run **Log Current Data for Today** manually from Settings.
@@ -134,7 +142,7 @@ That focus comes with trade-offs, and most of them are deliberate:
 | **Exercise library or demo videos** | By design. You type your own exercises, so you are never confined to a predefined list. |
 | **Suggestions for the next weight or reps** | It shouldn't tell you. OSPOT shows your history and you decide when to progress, because you know better than an app when it's time to go up. |
 | **Browsable workout history log** | A complexity trade-off. The chart shows your top set over time, and the exported JSON holds the daily history for every exercise if you want the raw data. |
-| **Volume, estimated 1RM or other analytics** | By design. Volume (weight x reps, or set count) isn't a useful thing to track here, and set counts are hard to derive anyway since exercises aren't categorised by name. A 1RM estimate is an arbitrary formula that not everyone needs, so the chart plots the heaviest weight and nothing else. |
+| **Volume, estimated 1RM or other analytics** | By design. Volume (weight x reps, or set count) isn't a useful thing to track here, and set counts are hard to derive anyway since exercises aren't categorised by name. A 1RM estimate is an arbitrary formula that not everyone needs, so the main chart plots the heaviest weight and the exercise-specific chart adds the reps from that top set, with nothing calculated. |
 | **Routines or programs, supersets, plate calculator** | By design, to keep the app flexible and simple. |
 | **Cloud sync or automatic backup** | By design. Manual JSON export and import is there when you want a backup. |
 | **iOS, wearable or widget support** | A widget is on my mind. iOS and wearables won't happen any time soon, since I don't own either. |
