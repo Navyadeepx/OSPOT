@@ -1,6 +1,6 @@
 <div align="center">
 
-# OSPOT
+<img src="app/src/main/res/drawable/ospot_logo.png" height="64" alt="OSPOT">
 
 **Open Source Progressive Overload Tracker**
 
