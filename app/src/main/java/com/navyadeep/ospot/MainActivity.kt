@@ -175,9 +175,16 @@ fun stopTimerVibration(vibrator: android.os.Vibrator?) {
 }
 
 fun formatTimerTime(totalSeconds: Int): String {
-    val mins = totalSeconds / 60
-    val secs = totalSeconds % 60
-    return String.format(Locale.getDefault(), "%d:%02d", mins, secs)
+    if (totalSeconds < 0) {
+        val absSecs = kotlin.math.abs(totalSeconds)
+        val mins = absSecs / 60
+        val secs = absSecs % 60
+        return String.format(Locale.getDefault(), "-%d:%02d", mins, secs)
+    } else {
+        val mins = totalSeconds / 60
+        val secs = totalSeconds % 60
+        return String.format(Locale.getDefault(), "%d:%02d", mins, secs)
+    }
 }
 
 fun formatPresetLabel(seconds: Int): String {
@@ -219,6 +226,11 @@ data class WorkoutBackup(
     val allowCustomTimer: Boolean = true,
     val timerVibration: Boolean = true
 )
+
+private val TIMER_END_TIME_KEY = longPreferencesKey("active_timer_end_time")
+private val TIMER_TOTAL_SECONDS_KEY = intPreferencesKey("active_timer_total_seconds")
+private val TIMER_IS_RUNNING_KEY = booleanPreferencesKey("active_timer_is_running")
+private val TIMER_PAUSED_REMAINING_KEY = intPreferencesKey("active_timer_paused_remaining")
 
 class MainActivity : ComponentActivity() {
 
@@ -271,6 +283,11 @@ class MainActivity : ComponentActivity() {
 
         val initialAllowCustomTimer = initialPrefs[ALLOW_CUSTOM_TIMER_KEY] ?: true
         val initialTimerVibration = initialPrefs[TIMER_VIBRATION_KEY] ?: true
+
+        val initialTimerEndTime = initialPrefs[TIMER_END_TIME_KEY] ?: 0L
+        val initialTimerTotalSeconds = initialPrefs[TIMER_TOTAL_SECONDS_KEY] ?: 0
+        val initialTimerIsRunning = initialPrefs[TIMER_IS_RUNNING_KEY] ?: false
+        val initialTimerPausedRemaining = initialPrefs[TIMER_PAUSED_REMAINING_KEY] ?: 0
 
         setContent {
             val scope = rememberCoroutineScope()
@@ -760,7 +777,11 @@ class MainActivity : ComponentActivity() {
 
                             dataStore.edit { it[PROGRESS_DATA_KEY] = Json.encodeToString(progressMap) }
                         }
-                    }
+                    },
+                    initialTimerEndTime = initialTimerEndTime,
+                    initialTimerTotalSeconds = initialTimerTotalSeconds,
+                    initialTimerIsRunning = initialTimerIsRunning,
+                    initialTimerPausedRemaining = initialTimerPausedRemaining
                 )
             }
         }
@@ -814,7 +835,11 @@ fun WorkoutAppScreen(
     onAccentColorChange: (Color) -> Unit,
     onExportData: () -> Unit,
     onImportData: () -> Unit,
-    onManualSaveToday: () -> Unit = {}
+    onManualSaveToday: () -> Unit = {},
+    initialTimerEndTime: Long = 0L,
+    initialTimerTotalSeconds: Int = 0,
+    initialTimerIsRunning: Boolean = false,
+    initialTimerPausedRemaining: Int = 0
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -826,19 +851,48 @@ fun WorkoutAppScreen(
 
     val expandedStates = remember { mutableStateMapOf<String, Boolean>() }
 
-    var timerSecondsRemaining by remember { mutableIntStateOf(0) }
-    var timerTotalSeconds by remember { mutableIntStateOf(0) }
-    var timerEndTimeMillis by remember { mutableLongStateOf(0L) }
-    var isTimerRunning by remember { mutableStateOf(false) }
+    val initialRemaining = remember {
+        if (initialTimerIsRunning && initialTimerEndTime > 0L) {
+            val now = System.currentTimeMillis()
+            val diffMillis = initialTimerEndTime - now
+            if (diffMillis >= 0) {
+                ((diffMillis + 999L) / 1000L).toInt()
+            } else {
+                -(((-diffMillis) / 1000L).toInt())
+            }
+        } else {
+            initialTimerPausedRemaining
+        }
+    }
+
+    var timerSecondsRemaining by remember { mutableIntStateOf(initialRemaining) }
+    var timerTotalSeconds by remember { mutableIntStateOf(initialTimerTotalSeconds) }
+    var timerEndTimeMillis by remember { mutableLongStateOf(if (initialTimerIsRunning) initialTimerEndTime else 0L) }
+    var isTimerRunning by remember { mutableStateOf(initialTimerIsRunning && initialTimerTotalSeconds > 0) }
     var showCustomTimerDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        if (initialTimerIsRunning && initialTimerTotalSeconds > 0 && initialRemaining <= 0 && timerVibration) {
+            startTimerVibration(context)
+        }
+    }
 
     val startTimer: (Int) -> Unit = { durationSeconds ->
         stopTimerVibration(context)
+        val endTime = System.currentTimeMillis() + durationSeconds * 1000L
         timerTotalSeconds = durationSeconds
         timerSecondsRemaining = durationSeconds
-        timerEndTimeMillis = System.currentTimeMillis() + durationSeconds * 1000L
+        timerEndTimeMillis = endTime
         isTimerRunning = true
         RestTimerReceiver.schedule(context, durationSeconds, timerVibration)
+        scope.launch {
+            context.dataStore.edit { prefs ->
+                prefs[TIMER_END_TIME_KEY] = endTime
+                prefs[TIMER_TOTAL_SECONDS_KEY] = durationSeconds
+                prefs[TIMER_IS_RUNNING_KEY] = true
+                prefs[TIMER_PAUSED_REMAINING_KEY] = 0
+            }
+        }
     }
 
     val stopTimer: () -> Unit = {
@@ -847,31 +901,57 @@ fun WorkoutAppScreen(
         timerTotalSeconds = 0
         timerEndTimeMillis = 0L
         RestTimerReceiver.cancel(context)
+        stopTimerVibration(context)
+        scope.launch {
+            context.dataStore.edit { prefs ->
+                prefs[TIMER_END_TIME_KEY] = 0L
+                prefs[TIMER_TOTAL_SECONDS_KEY] = 0
+                prefs[TIMER_IS_RUNNING_KEY] = false
+                prefs[TIMER_PAUSED_REMAINING_KEY] = 0
+            }
+        }
     }
 
     val pauseTimer: () -> Unit = {
         isTimerRunning = false
         RestTimerReceiver.cancel(context)
+        val remaining = timerSecondsRemaining
+        scope.launch {
+            context.dataStore.edit { prefs ->
+                prefs[TIMER_IS_RUNNING_KEY] = false
+                prefs[TIMER_PAUSED_REMAINING_KEY] = remaining
+                prefs[TIMER_END_TIME_KEY] = 0L
+            }
+        }
     }
 
     val resumeTimer: () -> Unit = {
+        val endTime = System.currentTimeMillis() + timerSecondsRemaining * 1000L
+        timerEndTimeMillis = endTime
+        isTimerRunning = true
         if (timerSecondsRemaining > 0) {
-            timerEndTimeMillis = System.currentTimeMillis() + timerSecondsRemaining * 1000L
-            isTimerRunning = true
             RestTimerReceiver.schedule(context, timerSecondsRemaining, timerVibration)
+        }
+        scope.launch {
+            context.dataStore.edit { prefs ->
+                prefs[TIMER_END_TIME_KEY] = endTime
+                prefs[TIMER_IS_RUNNING_KEY] = true
+                prefs[TIMER_PAUSED_REMAINING_KEY] = 0
+            }
         }
     }
 
     LaunchedEffect(isTimerRunning, timerEndTimeMillis) {
-        if (isTimerRunning && timerEndTimeMillis > 0L) {
+        if (isTimerRunning && timerEndTimeMillis != 0L) {
             while (isTimerRunning) {
                 val now = System.currentTimeMillis()
-                val remaining = maxOf(0, ((timerEndTimeMillis - now + 999L) / 1000L).toInt())
-                timerSecondsRemaining = remaining
-                if (remaining == 0) {
-                    isTimerRunning = false
-                    break
+                val diffMillis = timerEndTimeMillis - now
+                val remaining = if (diffMillis >= 0) {
+                    ((diffMillis + 999L) / 1000L).toInt()
+                } else {
+                    -(((-diffMillis) / 1000L).toInt())
                 }
+                timerSecondsRemaining = remaining
                 delay(250L)
             }
         }
@@ -944,7 +1024,7 @@ fun WorkoutAppScreen(
                                 // Right-Anchored Timer Pill
                                 if (timerTotalSeconds > 0) {
                                     Spacer(modifier = Modifier.weight(1f))
-                                    val isFinished = timerSecondsRemaining == 0
+                                    val isFinished = timerSecondsRemaining <= 0
                                     val pillBgColor = if (isFinished) Color(0xFF3E1212) else Color(
                                         red = accentColor.red * 0.15f,
                                         green = accentColor.green * 0.15f,
