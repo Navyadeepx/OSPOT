@@ -53,6 +53,7 @@ import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -2712,13 +2713,14 @@ fun ExerciseBox(
                                 contentDescription = if (isExpanded) "Collapse" else "Expand",
                                 tint = accentColor,
                                 modifier = Modifier
+                                    .offset(x = (-5).dp)
                                     .size(20.dp)
                                     .clickable(
                                         interactionSource = remember { MutableInteractionSource() },
                                         indication = null
                                     ) { onToggleExpand() }
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
                         }
 
                         if (isEditMode && isEditingName) {
@@ -2894,7 +2896,7 @@ fun ExerciseBox(
                                         modifier = Modifier.fillMaxWidth(),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Box(modifier = Modifier.width(82.dp)) {
+                                        Box(modifier = Modifier.width(IntrinsicSize.Max)) {
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 if (isEditMode) {
                                                     Box(
@@ -2920,10 +2922,14 @@ fun ExerciseBox(
                                                 Text(
                                                     text = "Set ${index + 1}",
                                                     color = Color.Gray,
-                                                    fontSize = 14.sp
+                                                    fontSize = 14.sp,
+                                                    maxLines = 1,
+                                                    softWrap = false
                                                 )
                                             }
                                         }
+
+                                        Spacer(modifier = Modifier.weight(1f))
 
                                         // Weight
                                         SetValueEditor(
@@ -2942,36 +2948,58 @@ fun ExerciseBox(
                                                 val inc = weightIncrement.toDoubleOrNull() ?: 2.5
                                                 val next = (current - inc).coerceAtLeast(0.0)
                                                 onUpdateSet(index, if (next % 1.0 == 0.0) next.toInt().toString() else next.toString(), null, null, null)
-                                            },
-                                            modifier = Modifier.weight(1f)
+                                            }
                                         )
 
-                                        Spacer(modifier = Modifier.width(30.dp))
+                                        Spacer(modifier = Modifier.weight(1f))
 
                                         // Reps
-                                        SetValueEditor(
-                                            label = "Reps",
-                                            value = set.reps,
-                                            labelWidth = 24.dp,
-                                            onValueChange = { onUpdateSet(index, null, it, null, null) },
-                                            onIncrement = {
-                                                val current = set.reps.toIntOrNull() ?: 0
-                                                onUpdateSet(index, null, (current + 1).toString(), null, null)
-                                            },
-                                            onDecrement = {
-                                                val current = set.reps.toIntOrNull() ?: 0
-                                                onUpdateSet(index, null, (current - 1).coerceAtLeast(0).toString(), null, null)
-                                            },
-                                            modifier = Modifier.weight(1f)
-                                        )
+                                        Box(modifier = Modifier.padding(end = 16.dp)) {
+                                            SetValueEditor(
+                                                label = "Reps",
+                                                value = set.reps,
+                                                labelWidth = 24.dp,
+                                                onValueChange = { onUpdateSet(index, null, it, null, null) },
+                                                onIncrement = {
+                                                    val current = set.reps.toIntOrNull() ?: 0
+                                                    onUpdateSet(index, null, (current + 1).toString(), null, null)
+                                                },
+                                                onDecrement = {
+                                                    val current = set.reps.toIntOrNull() ?: 0
+                                                    onUpdateSet(index, null, (current - 1).coerceAtLeast(0).toString(), null, null)
+                                                }
+                                            )
+                                        }
                                     }
 
                                     if (showRpe || showRir) {
                                         Spacer(modifier = Modifier.height(4.dp))
                                         Row(
-                                            modifier = Modifier.fillMaxWidth()
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Spacer(modifier = Modifier.width(82.dp))
+                                            Box(modifier = Modifier.width(IntrinsicSize.Max)) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier.alpha(0f)
+                                                ) {
+                                                    if (isEditMode) {
+                                                        Box(modifier = Modifier.size(20.dp))
+                                                        Spacer(modifier = Modifier.width(2.dp))
+                                                    }
+                                                    SetTypeShape(set.type)
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text(
+                                                        text = "Set ${index + 1}",
+                                                        fontSize = 14.sp,
+                                                        maxLines = 1,
+                                                        softWrap = false
+                                                    )
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.weight(1f))
+
                                             if (showRir) {
                                                 SetValueEditor(
                                                     label = "RIR",
@@ -2985,35 +3013,53 @@ fun ExerciseBox(
                                                     onDecrement = {
                                                         val current = set.rir.toIntOrNull() ?: 0
                                                         onUpdateSet(index, null, null, (current - 1).coerceAtLeast(0).toString(), null)
-                                                    },
-                                                    modifier = Modifier.weight(1f)
+                                                    }
                                                 )
                                             } else {
-                                                Spacer(modifier = Modifier.weight(1f))
+                                                Box(modifier = Modifier.alpha(0f)) {
+                                                    SetValueEditor(
+                                                        label = "RIR",
+                                                        value = "-",
+                                                        labelWidth = 38.dp,
+                                                        onValueChange = {},
+                                                        onIncrement = {},
+                                                        onDecrement = {}
+                                                    )
+                                                }
                                             }
 
-                                            Spacer(modifier = Modifier.width(30.dp))
+                                            Spacer(modifier = Modifier.weight(1f))
 
                                             if (showRpe) {
-                                                SetValueEditor(
-                                                    label = "RPE",
-                                                    value = set.rpe,
-                                                    labelWidth = 24.dp,
-                                                    onValueChange = { onUpdateSet(index, null, null, null, it) },
-                                                    onIncrement = {
-                                                        val current = set.rpe.toDoubleOrNull() ?: 0.0
-                                                        val next = (current + 0.5).coerceAtMost(10.0)
-                                                        onUpdateSet(index, null, null, null, if (next % 1.0 == 0.0) next.toInt().toString() else next.toString())
-                                                    },
-                                                    onDecrement = {
-                                                        val current = set.rpe.toDoubleOrNull() ?: 0.0
-                                                        val next = (current - 0.5).coerceAtLeast(0.0)
-                                                        onUpdateSet(index, null, null, null, if (next % 1.0 == 0.0) next.toInt().toString() else next.toString())
-                                                    },
-                                                    modifier = Modifier.weight(1f)
-                                                )
+                                                Box(modifier = Modifier.padding(end = 16.dp)) {
+                                                    SetValueEditor(
+                                                        label = "RPE",
+                                                        value = set.rpe,
+                                                        labelWidth = 24.dp,
+                                                        onValueChange = { onUpdateSet(index, null, null, null, it) },
+                                                        onIncrement = {
+                                                            val current = set.rpe.toDoubleOrNull() ?: 0.0
+                                                            val next = (current + 0.5).coerceAtMost(10.0)
+                                                            onUpdateSet(index, null, null, null, if (next % 1.0 == 0.0) next.toInt().toString() else next.toString())
+                                                        },
+                                                        onDecrement = {
+                                                            val current = set.rpe.toDoubleOrNull() ?: 0.0
+                                                            val next = (current - 0.5).coerceAtLeast(0.0)
+                                                            onUpdateSet(index, null, null, null, if (next % 1.0 == 0.0) next.toInt().toString() else next.toString())
+                                                        }
+                                                    )
+                                                }
                                             } else {
-                                                Spacer(modifier = Modifier.weight(1f))
+                                                Box(modifier = Modifier.padding(end = 16.dp).alpha(0f)) {
+                                                    SetValueEditor(
+                                                        label = "RPE",
+                                                        value = "-",
+                                                        labelWidth = 24.dp,
+                                                        onValueChange = {},
+                                                        onIncrement = {},
+                                                        onDecrement = {}
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -3029,7 +3075,7 @@ fun ExerciseBox(
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(top = 4.dp, end = 8.dp)
+                .padding(top = 4.dp, end = 16.dp)
         ) {
             if (isEditMode) {
                 Box(
@@ -3062,7 +3108,7 @@ fun ExerciseBox(
                         ) {
                             addSetMenuExpanded = true
                         }
-                        .padding(8.dp)
+                        .padding(vertical = 8.dp)
                 )
 
                 DropdownMenu(
@@ -3132,12 +3178,13 @@ fun ExerciseBox(
 fun SetValueEditor(
     label: String,
     value: String,
+    modifier: Modifier = Modifier,
     suffix: String = "",
     labelWidth: androidx.compose.ui.unit.Dp? = null,
+    horizontalArrangement: Arrangement.Horizontal = Arrangement.Start,
     onValueChange: (String) -> Unit,
     onIncrement: () -> Unit,
-    onDecrement: () -> Unit,
-    modifier: Modifier = Modifier
+    onDecrement: () -> Unit
 ) {
     var isEditing by remember { mutableStateOf(false) }
     var editValue by remember { mutableStateOf(TextFieldValue(value)) }
@@ -3157,13 +3204,15 @@ fun SetValueEditor(
     Row(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Start
+        horizontalArrangement = horizontalArrangement
     ) {
         Text(
             text = label,
             color = Color.Gray,
             fontSize = 11.sp,
-            modifier = if (labelWidth != null) Modifier.width(labelWidth) else Modifier.width(IntrinsicSize.Min)
+            modifier = if (labelWidth != null) Modifier.width(labelWidth) else Modifier.width(IntrinsicSize.Min),
+            maxLines = 1,
+            softWrap = false
         )
         
         Row(
@@ -3281,41 +3330,43 @@ fun SetValueEditor(
 }
 
 @Composable
-fun SetTypeShape(type: SetType) {
-    when (type) {
-        SetType.WARMUP -> {
-            Box(
-                modifier = Modifier
-                    .size(10.dp)
-                    .background(Color(0xFF0A2610), RoundedCornerShape(5.dp))
-                    .border(1.dp, Color(0xFF2E7D32), RoundedCornerShape(5.dp))
-            )
-        }
-        SetType.PRIMER -> {
-            Box(
-                modifier = Modifier
-                    .size(10.dp)
-                    .background(Color(0xFF26180A), RoundedCornerShape(2.dp))
-                    .border(1.dp, Color(0xFFEF6C00), RoundedCornerShape(2.dp))
-            )
-        }
-        SetType.WORKING -> {
-            Canvas(modifier = Modifier.size(10.dp)) {
-                val path = Path().apply {
-                    moveTo(size.width / 2f, 0f)
-                    lineTo(size.width, size.height)
-                    lineTo(0f, size.height)
-                    close()
+fun SetTypeShape(type: SetType, modifier: Modifier = Modifier) {
+    Box(modifier = modifier.offset(y = (-1).dp)) {
+        when (type) {
+            SetType.WARMUP -> {
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .background(Color(0xFF0A2610), RoundedCornerShape(6.dp))
+                        .border(1.dp, Color(0xFF2E7D32), RoundedCornerShape(6.dp))
+                )
+            }
+            SetType.PRIMER -> {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .background(Color(0xFF26180A), RoundedCornerShape(2.dp))
+                        .border(1.dp, Color(0xFFEF6C00), RoundedCornerShape(2.dp))
+                )
+            }
+            SetType.WORKING -> {
+                Canvas(modifier = Modifier.size(10.dp)) {
+                    val path = Path().apply {
+                        moveTo(size.width / 2f, 0f)
+                        lineTo(size.width, size.height)
+                        lineTo(0f, size.height)
+                        close()
+                    }
+                    drawPath(
+                        path = path,
+                        color = Color(0xFF260A0A)
+                    )
+                    drawPath(
+                        path = path,
+                        color = Color(0xFFC62828),
+                        style = Stroke(width = 1.dp.toPx())
+                    )
                 }
-                drawPath(
-                    path = path,
-                    color = Color(0xFF260A0A)
-                )
-                drawPath(
-                    path = path,
-                    color = Color(0xFFC62828),
-                    style = Stroke(width = 1.dp.toPx())
-                )
             }
         }
     }
